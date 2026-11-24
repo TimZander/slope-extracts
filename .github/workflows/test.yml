@@ -1,0 +1,28 @@
+# The pipeline's tests, on every pull request and push to main. Read-only; no network beyond pip.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned packages
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q --require-hashes --only-binary=:all: --no-deps -r requirements.txt
+      - name: Test
+        run: |
+          git config --global user.name test
+          git config --global user.email test@example.com
+          "$RUNNER_TEMP/venv/bin/python" -m pytest -q tests

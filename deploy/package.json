@@ -1,0 +1,8 @@
+{
+  "name": "slope-extracts-deploy",
+  "private": true,
+  "description": "The deploy job's wrangler, installed with npm ci --ignore-scripts from the lockfile in a step that holds no secret.",
+  "dependencies": {
+    "wrangler": "3.114.17"
+  }
+}

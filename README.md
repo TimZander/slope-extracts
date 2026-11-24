@@ -1,2 +1,18 @@
 # slope-extracts
-Precomputed slope-angle shading cells (USGS 3DEP) for garmin-map's slope layer
+
+Slope-angle shading cells for [garmin-map](https://maps.timzander.com)'s slope layer, computed from the
+USGS 3D Elevation Program (3DEP) and published as a static site at <https://slope.timzander.com>.
+
+- **What it builds:** `openspec/specs/slope-extract` (the spec), `docs/decisions/` (why).
+- **How:** `.github/workflows/build.yml` runs every 3 hours and by hand. It builds the cells of
+  `regions.json` that the site lacks or built with an older recipe, at most 48 per run, three per job:
+  - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic.
+  - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes three
+    gzip JSON files per 0.25° cell.
+  - A deploy job checks them, reads the rest of the site back from the live site, and uploads the
+    whole site with `wrangler pages deploy` (Direct Upload sends only changed files).
+- **Locally:** `python -m venv .venv && .venv/bin/pip install -r requirements.in && .venv/bin/python -m
+  pytest -q tests`. Build a real cell with `.venv/bin/python -m slope_extracts.build_cell 158_-425 --out
+  out/`.
+
+Elevation data: U.S. Geological Survey, 3D Elevation Program, public domain. The code is MIT-licensed.

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "Cells share the OSM extract's grid": null,
+      "The regions list": null,
+      "Slope classes are named by their lower bound": null,
+      "Tier 0 holds every band and the cliffs": null,
+      "Zoomed out, whole bands drop out, never small areas": null,
+      "Polygons are clipped to their cell": null,
+      "Elevation comes from 3DEP lidar, then the 10 m DEM": null,
+      "A cell is three gzip JSON layer files": null,
+      "The manifest lists each region's coverage and built cells": null,
+      "A run builds missing and stale cells, at most 48": null,
+      "Nothing a pull request, a fork or a caller can steer runs the build workflow": null,
+      "Wrangler is installed from its lockfile, with no install scripts": null,
+      "The Cloudflare credentials reach one step only": null,
+      "Build-job packages are installed from pinned hashes": null,
+      "The deploy job accepts only well-formed cells": null,
+      "A build job publishes only the cells the plan gave it": null,
+      "A failed cell keeps its previous files": null,
+      "Deploying adds to the live site": null,
+      "Files read back from the live site are checked": null,
+      "The site holds at most 19,000 files": null,
+      "The site sets its CORS and cache headers": null,
+      "The site carries its sources notice": null
+    }
+  }
+}
