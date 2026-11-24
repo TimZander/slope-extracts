@@ -109,3 +109,13 @@ def test_packages_are_hash_pinned():
 
 def test_regions_list_is_valid():
     site.validate_regions(json.loads((ROOT / 'regions.json').read_text()))
+
+
+def test_nothing_runs_until_building_is_turned_on():
+    # Spec: slope-extract, "Runs wait until the owner turns building on". Build and deploy need plan,
+    # so a skipped plan skips them too.
+    j = jobs()
+    assert "    if: ${{ vars.BUILD_ENABLED == 'true' }}\n" in j['plan']
+    assert 'needs: plan' in j['build']
+    assert re.search(r'needs: \[plan, build\]', j['deploy'])
+

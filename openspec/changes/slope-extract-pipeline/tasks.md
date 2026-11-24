@@ -30,3 +30,4 @@
 - [ ] 4.2 First live run (`workflow_dispatch`) once the owner has created the Pages project and the `pages-production` Environment — not done: waits for the owner
 - [ ] 4.3 Remove `only` from Colorado so the schedule builds the state — not done: after the pilot is checked
 - [ ] 4.4 Once every Colorado cell is built, switch the schedule to every 3 hours in June only (ADR 0006) — not done: after the backfill
+- [x] 4.5 Runs wait for `BUILD_ENABLED` (ADR 0008) and `docs/setup.md` lists the owner's setup

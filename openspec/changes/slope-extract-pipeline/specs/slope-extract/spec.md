@@ -157,6 +157,22 @@ actions SHALL be used, each pinned by commit SHA, with no expression inside `run
 - **WHEN** the workflow file is read
 - **THEN** its `on:` has exactly `schedule` and `workflow_dispatch`, no input, and no job can write
 
+### Requirement: Runs wait until the owner turns building on
+
+The build workflow's plan job SHALL run only when the repository variable `BUILD_ENABLED` is `true`.
+Until then every run SHALL skip all its jobs and build, read and deploy nothing, so a repository
+merged before its Cloudflare project and secrets exist doesn't fail every 3 hours.
+
+#### Scenario: Before setup
+
+- **WHEN** a scheduled run starts and `BUILD_ENABLED` isn't set
+- **THEN** the plan, build and deploy jobs are skipped and the run ends without failing
+
+#### Scenario: After setup
+
+- **WHEN** the owner has set `BUILD_ENABLED` to `true`
+- **THEN** the plan job runs as before
+
 ### Requirement: Wrangler is installed from its lockfile, with no install scripts
 
 The deploy job SHALL install wrangler 3.114.17 and its dependencies with `npm ci --ignore-scripts` from

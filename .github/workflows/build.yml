@@ -14,6 +14,8 @@
 # - Only GitHub's checkout/upload-artifact/download-artifact, each pinned by commit SHA. Wrangler and its
 #   dependencies come from deploy/package-lock.json via `npm ci --ignore-scripts`, in a step with no
 #   secret. No `setup-python`, no expression inside `run:`.
+# - Nothing runs until the owner sets the repository variable BUILD_ENABLED to true, after the
+#   Cloudflare project and the Environment's secrets exist (docs/setup.md, ADR 0008).
 # - Plan and build jobs read third-party data with no secret. Build-job wheels are hash-pinned. The
 #   deploy job checks every file they upload, and every file it reads back from the live site, before
 #   the wrangler step runs.
@@ -33,6 +35,7 @@ concurrency:
 
 jobs:
   plan:
+    if: ${{ vars.BUILD_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

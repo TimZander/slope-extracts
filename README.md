@@ -11,6 +11,7 @@ USGS 3D Elevation Program (3DEP) and published as a static site at <https://slop
     gzip JSON files per 0.25° cell.
   - A deploy job checks them, reads the rest of the site back from the live site, and uploads the
     whole site with `wrangler pages deploy` (Direct Upload sends only changed files).
+- **Setup:** `docs/setup.md` (Cloudflare project, token, Environment, then `BUILD_ENABLED`).
 - **Locally:** `python -m venv .venv && .venv/bin/pip install -r requirements.in && .venv/bin/python -m
   pytest -q tests`. Build a real cell with `.venv/bin/python -m slope_extracts.build_cell 158_-425 --out
   out/`.

@@ -13,6 +13,7 @@
       "The manifest lists each region's coverage and built cells": null,
       "A run builds missing and stale cells, at most 48": null,
       "Nothing a pull request, a fork or a caller can steer runs the build workflow": null,
+      "Runs wait until the owner turns building on": null,
       "Wrangler is installed from its lockfile, with no install scripts": null,
       "The Cloudflare credentials reach one step only": null,
       "Build-job packages are installed from pinned hashes": null,
