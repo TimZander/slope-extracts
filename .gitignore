@@ -1,0 +1,6 @@
+node_modules
+.claude/skills/openspec-*/
+.claude/commands/opsx/
+__pycache__/
+.pytest_cache/
+*.pyc
