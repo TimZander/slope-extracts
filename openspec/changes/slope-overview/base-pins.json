@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "Each region has an overview of its built cells' tier 4": null,
+      "The deploy job writes the overview from the cells it publishes": null,
+      "The manifest gives each region's overview": null,
+      "The site sets its CORS and cache headers": "0387b62c3e3266c340ee6a2a3c9ce0bf80c1c3a6a32d504dfd6d27bf2e5f8df9",
+      "Deploying adds to the live site": "d6d9756d3fc0afb125f30481db9e1410d53a5e7eae0ba444ef16ad450deaf6ae"
+    }
+  }
+}
