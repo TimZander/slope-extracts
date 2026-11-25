@@ -17,3 +17,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0009](0009-a-first-deploy-switch-for-a-placeholder-site.md) | A one-run `FIRST_DEPLOY` switch lets the first deploy replace a placeholder site with no `404.html` | accepted |
 | [0010](0010-build-all-of-colorado.md) | Build all of Colorado: drop the pilot's `only` list | accepted |
 | [0011](0011-a-region-overview-of-tier-4-written-by-the-deploy-job.md) | A per-region overview of every built cell's tier 4, written by the deploy job | accepted |
+| [0012](0012-update-sdd-to-0-4-4.md) | Update sdd from 0.3.2 to 0.4.4 | accepted |
