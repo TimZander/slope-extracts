@@ -16,6 +16,8 @@
 #   secret. No `setup-python`, no expression inside `run:`.
 # - Nothing runs until the owner sets the repository variable BUILD_ENABLED to true, after the
 #   Cloudflare project and the Environment's secrets exist (docs/setup.md, ADR 0008).
+# - The repository variable FIRST_DEPLOY, set for one run, lets the first deploy replace a placeholder
+#   site that answers every path with 200 (ADR 0009). Variables are set by admins only.
 # - Plan and build jobs read third-party data with no secret. Build-job wheels are hash-pinned. The
 #   deploy job checks every file they upload, and every file it reads back from the live site, before
 #   the wrangler step runs.
@@ -50,6 +52,9 @@ jobs:
           persist-credentials: false
       - name: Plan the cells to build
         id: plan
+        # FIRST_DEPLOY (docs/setup.md, ADR 0009): set for one run over a placeholder site, then deleted.
+        env:
+          FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}
         run: python3 -m slope_extracts.site >> "$GITHUB_OUTPUT"
 
   build:
@@ -115,6 +120,7 @@ jobs:
         env:
           PLAN_JOBS: ${{ needs.plan.outputs.jobs }}
           PLAN_HAD_MANIFEST: ${{ needs.plan.outputs.had_manifest }}
+          FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}
         run: python3 -m slope_extracts.publish assemble --artifacts "$RUNNER_TEMP/artifacts" --out _site
       # Wrangler and everything under it come from deploy/package-lock.json (integrity hashes), with
       # no install scripts, in a step that holds no secret.

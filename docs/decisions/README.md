@@ -14,3 +14,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0006](0006-incremental-runs-48-cells-backfill-then-yearly.md) | At most 48 missing, stale or year-old cells per run; 3-hourly backfill, then June only | accepted |
 | [0007](0007-no-workflow-inputs-and-least-privilege-jobs.md) | No workflow input, every job read-only, the token only where nothing outside steers | accepted |
 | [0008](0008-nothing-runs-until-building-is-turned-on.md) | Nothing runs until the owner sets `BUILD_ENABLED` to `true` | accepted |
+| [0009](0009-a-first-deploy-switch-for-a-placeholder-site.md) | A one-run `FIRST_DEPLOY` switch lets the first deploy replace a placeholder site with no `404.html` | accepted |

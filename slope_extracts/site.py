@@ -219,7 +219,7 @@ def site_files(manifest):
 def main_plan(argv=None):
     """python -m slope_extracts.site -> `jobs` and `count` lines for $GITHUB_OUTPUT.
 
-    Reads the live site's manifest (public: no credential)."""
+    Reads the live site's manifest (public: no credential), with the first-deploy switch from FIRST_DEPLOY."""
     import argparse
     import sys
     from . import publish, recipe
@@ -227,7 +227,7 @@ def main_plan(argv=None):
     ap.parse_args(argv)
     try:
         regions = load_regions()
-        prev = publish.fetch_manifest()
+        prev = publish.fetch_manifest(first_deploy=publish.first_deploy_on())
     except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as e:
         print(f'::error::{e}', file=sys.stderr)
         return 1
