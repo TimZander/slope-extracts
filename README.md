@@ -9,8 +9,9 @@ USGS 3D Elevation Program (3DEP) and published as a static site at <https://slop
   - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic.
   - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes three
     gzip JSON files per 0.25° cell.
-  - A deploy job checks them, reads the rest of the site back from the live site, and uploads the
-    whole site with `wrangler pages deploy` (Direct Upload sends only changed files).
+  - A deploy job checks them and reads the rest of the site back from the live site. It writes each
+    region's `overview.json.gz` (every built cell's tier 4, for the app's zoomed-out view), then uploads
+    the whole site with `wrangler pages deploy` (Direct Upload sends only changed files).
 - **Setup:** `docs/setup.md` (Cloudflare project, token, Environment, then `BUILD_ENABLED`).
 - **Locally:** `python -m venv .venv && .venv/bin/pip install -r requirements.in && .venv/bin/python -m
   pytest -q tests`. Build a real cell with `.venv/bin/python -m slope_extracts.build_cell 158_-425 --out

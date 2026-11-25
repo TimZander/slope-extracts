@@ -22,7 +22,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from . import grid, site
+from . import grid, overview, site
 
 SITE_URL = os.environ.get('SLOPE_SITE_URL', 'https://slope.timzander.com')
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -280,6 +280,15 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
             dst = os.path.join(out_dir, site.layer_path(region, cell, l))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(p, dst)
+    # Each overview from the checked cell files now in out_dir; a live overview is never read back.
+    for r in manifest['regions']:
+        paths = [os.path.join(out_dir, site.layer_path(r['id'], c, 't1-4')) for c in r['coverage'] if c in r['cells']]
+        doc = overview.build(r['id'], paths)
+        if doc is not None:
+            data = overview.dumps(doc)
+            with open(os.path.join(out_dir, site.overview_path(r['id'])), 'wb') as fh:
+                fh.write(data)
+            r['overview'] = overview.entry(doc, data)
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as fh:
         fh.write(json.dumps(manifest, indent=1) + '\n')
     for name, text in (('_headers', site.HEADERS), ('404.html', site.NOT_FOUND_HTML), ('LICENSE.txt', site.license_text(manifest))):
