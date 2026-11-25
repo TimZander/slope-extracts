@@ -15,4 +15,5 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0007](0007-no-workflow-inputs-and-least-privilege-jobs.md) | No workflow input, every job read-only, the token only where nothing outside steers | accepted |
 | [0008](0008-nothing-runs-until-building-is-turned-on.md) | Nothing runs until the owner sets `BUILD_ENABLED` to `true` | accepted |
 | [0009](0009-a-first-deploy-switch-for-a-placeholder-site.md) | A one-run `FIRST_DEPLOY` switch lets the first deploy replace a placeholder site with no `404.html` | accepted |
+| [0010](0010-build-all-of-colorado.md) | Build all of Colorado: drop the pilot's `only` list | accepted |
 | [0011](0011-a-region-overview-of-tier-4-written-by-the-deploy-job.md) | A per-region overview of every built cell's tier 4, written by the deploy job | accepted |
