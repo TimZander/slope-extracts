@@ -5,6 +5,7 @@ Standard library only (the plan and deploy jobs install nothing).
 Site layout, deployed to Cloudflare Pages (project slope-extracts) by Direct Upload:
     manifest.json                       every region, its coverage and its built cells
     <region>/<cell>/<layer>.json.gz     one file per built cell and layer (see cellfile.py)
+    <region>/overview.json.gz           each region's built cells' tier 4 (see overview.py)
     _headers, 404.html, LICENSE.txt
 """
 import json
@@ -65,6 +66,10 @@ def coverage(region):
 
 def layer_path(region_id, cell_id, layer):
     return f'{region_id}/{cell_id}/{layer}.json.gz'
+
+
+def overview_path(region_id):
+    return f'{region_id}/overview.json.gz'
 
 
 def validate_entry(e, cell_id=None):
@@ -172,8 +177,11 @@ HEADERS = """/*
   Access-Control-Allow-Origin: *
   X-Content-Type-Options: nosniff
 
-/:region/*
+/:region/:cell/*
   Cache-Control: public, max-age=86400
+
+/:region/overview.json.gz
+  Cache-Control: public, max-age=3600
 
 /LICENSE.txt
   Cache-Control: public, max-age=3600
@@ -213,6 +221,8 @@ def site_files(manifest):
     for r in manifest['regions']:
         for c in r['cells']:
             paths += [layer_path(r['id'], c, l) for l in LAYERS]
+        if r['cells']:
+            paths.append(overview_path(r['id']))
     return paths
 
 

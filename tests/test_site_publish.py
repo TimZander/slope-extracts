@@ -4,7 +4,7 @@ import shutil
 
 import pytest
 
-from slope_extracts import build_cell, cellfile, grid, publish, site
+from slope_extracts import build_cell, cellfile, grid, overview, publish, site
 
 REGION = [{'id': 'colorado', 'name': 'Colorado', 'bounds': {'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}}]
 DILLON, OTHER = '158_-425', '158_-424'
@@ -137,7 +137,8 @@ def test_first_run_assembles_the_site(live, tmp_path):
     assert changed is True
     files = sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file())
     assert files == ['404.html', 'LICENSE.txt', '_headers', f'colorado/{DILLON}/t0-2m.json.gz',
-                     f'colorado/{DILLON}/t0-3m.json.gz', f'colorado/{DILLON}/t1-4.json.gz', 'manifest.json']
+                     f'colorado/{DILLON}/t0-3m.json.gz', f'colorado/{DILLON}/t1-4.json.gz', 'colorado/overview.json.gz',
+                     'manifest.json']
     manifest = site.validate_manifest(json.loads((out / 'manifest.json').read_text()))
     assert len(manifest['regions'][0]['coverage']) == 464
 
@@ -359,7 +360,7 @@ def test_rejects_an_oversized_file(tmp_path, monkeypatch):
 
 def test_site_file_count_guard(tmp_path, monkeypatch):
     artifact(tmp_path, 0, [DILLON])
-    monkeypatch.setattr(site, 'MAX_SITE_FILES', 6)  # 4 fixed files + 3 layers = 7
+    monkeypatch.setattr(site, 'MAX_SITE_FILES', 7)  # 4 fixed files + 3 layers + the overview = 8
     with pytest.raises(RuntimeError, match='file limit'):
         prep(tmp_path)
 
@@ -375,7 +376,7 @@ def test_headers_never_set_cache_control_twice_on_a_path():
             rules[current].append(line.split(':', 1)[0].strip())
     assert rules['/*'] == ['Access-Control-Allow-Origin', 'X-Content-Type-Options']
     assert all(v == ['Cache-Control'] for k, v in rules.items() if k != '/*')
-    assert set(rules) == {'/*', '/:region/*', '/LICENSE.txt', '/manifest.json'}
+    assert set(rules) == {'/*', '/:region/:cell/*', '/:region/overview.json.gz', '/LICENSE.txt', '/manifest.json'}
 
 
 def test_license_lists_the_projects_used():
@@ -488,3 +489,170 @@ def test_the_plan_and_the_assembler_read_the_switch(tmp_path, monkeypatch, capsy
     monkeypatch.setenv('PLAN_HAD_MANIFEST', 'false')
     assert publish.main(['assemble', '--artifacts', str(tmp_path), '--out', str(tmp_path / 'o')]) == 0
     assert seen == [True, True]
+
+
+# --- region overview (slope-overview) ------------------------------------------------------------
+
+def overview_doc(out, region='colorado'):
+    return cellfile_loads_overview((out / region / 'overview.json.gz').read_bytes())
+
+
+def cellfile_loads_overview(data):
+    import gzip
+    return json.loads(gzip.decompress(data))
+
+
+def covered_order(cells):
+    cov = site.coverage(REGION[0])
+    return sorted(cells, key=cov.index)
+
+
+def tier4_polygons(cell, count, start=0):
+    """`count` distinct one-ring tier-4 polygons inside `cell`, numbered from `start`."""
+    s, w, _n, _e = grid.cell_bounds(cell)
+    y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
+    return [[[(y + 20 * i, x), (y + 20 * i + 10, x), (y + 20 * i + 10, x + 10)]] for i in range(start, start + count)]
+
+
+# Requirement: Each region has an overview of its built cells' tier 4
+def test_overview_holds_every_built_cells_tier_4_in_coverage_order(live, tmp_path):
+    first_count = 3
+    second_count = 5
+    first, second = covered_order([OTHER, DILLON])
+    root = artifact(tmp_path, 0, [second, first])
+    # Each cell's polygons in a deliberately unsorted order, to catch any re-sorting.
+    rewrite_layer(root, first, 't1-4', cellfile.build(first, 't1-4', {4: {30: tier4_polygons(first, first_count)[::-1]}}))
+    rewrite_layer(root, second, 't1-4', cellfile.build(second, 't1-4', {4: {30: tier4_polygons(second, second_count)[::-1]}}))
+    _c, out = run(tmp_path, live)
+    doc = overview_doc(out)
+    assert set(doc) == {'format', 'version', 'region', 'tiers'}
+    assert (doc['format'], doc['version'], doc['region']) == ('slope-overview', 1, 'colorado')
+    assert set(doc['tiers']) == {'4'} and set(doc['tiers']['4']) == {'30'}
+    got = doc['tiers']['4']['30']
+    assert len(got) == first_count + second_count
+    assert got[:first_count] == cellfile.loads((out / 'colorado' / first / 't1-4.json.gz').read_bytes())['tiers']['4']['30']
+    assert got[first_count:] == cellfile.loads((out / 'colorado' / second / 't1-4.json.gz').read_bytes())['tiers']['4']['30']
+
+
+# Requirement: Each region has an overview of its built cells' tier 4
+def test_the_same_cells_give_the_same_overview_bytes(live, tmp_path, monkeypatch):
+    import gzip
+    import types
+    first_clock = 1_000_000_000
+    second_clock = 1_900_000_000
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    doc = overview_doc(out)
+    # gzip stamps the time it compresses at: two writes far apart must still match.
+    monkeypatch.setattr(gzip, 'time', types.SimpleNamespace(time=lambda: first_clock))
+    first = overview.dumps(doc)
+    monkeypatch.setattr(gzip, 'time', types.SimpleNamespace(time=lambda: second_clock))
+    second = overview.dumps(doc)
+    assert first == second == (out / 'colorado/overview.json.gz').read_bytes()
+
+
+# Requirement: Each region has an overview of its built cells' tier 4
+# Requirement: The manifest gives each region's overview
+def test_a_region_with_no_built_cell_has_no_overview(live, tmp_path):
+    regions = REGION + [{'id': 'utah', 'name': 'Utah', 'bounds': {'south': 38.0, 'west': -112.0, 'north': 38.5, 'east': -111.5}}]
+    artifact(tmp_path, 0, [DILLON])
+    out = tmp_path / 'site'
+    publish.assemble(str(tmp_path / 'artifacts'), str(out), planned_jobs(tmp_path), False, regions=regions,
+                     site_url='https://slope.test', get=live.get, log=lambda *_: None)
+    manifest = json.loads((out / 'manifest.json').read_text())
+    utah = next(r for r in manifest['regions'] if r['id'] == 'utah')
+    assert 'overview' not in utah
+    assert not (out / 'utah').exists()
+    assert 'utah/overview.json.gz' not in site.site_files(manifest)
+    assert overview.build('utah', []) is None
+
+
+# Requirement: The deploy job writes the overview from the cells it publishes
+def test_a_run_that_adds_a_cell_adds_it_to_the_overview(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    artifact(tmp_path, 0, [OTHER], tag=1)
+    _c, out2 = run(tmp_path, live, 'site2')
+    assert len(overview_doc(out2)['tiers']['4']['30']) == 2
+    assert 'colorado/overview.json.gz' not in live.requests
+
+
+# Requirement: The deploy job writes the overview from the cells it publishes
+def test_an_overview_too_large_fails_the_deploy(live, tmp_path, monkeypatch):
+    artifact(tmp_path, 0, [DILLON])
+    monkeypatch.setattr(overview, 'MAX_FILE_BYTES', 10)
+    with pytest.raises(RuntimeError, match='overview'):
+        run(tmp_path, live)
+
+
+# Requirement: The deploy job writes the overview from the cells it publishes
+def test_an_overview_whose_json_is_too_large_fails_the_deploy(live, tmp_path, monkeypatch):
+    artifact(tmp_path, 0, [DILLON])
+    monkeypatch.setattr(overview, 'MAX_JSON_BYTES', 10)
+    with pytest.raises(RuntimeError, match='overview'):
+        run(tmp_path, live)
+
+
+# Requirement: The deploy job writes the overview from the cells it publishes
+def test_a_live_manifests_overview_entry_is_accepted_and_unused(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    m = json.loads(live.files['manifest.json'])
+    m['regions'][0]['overview'] = 'not an entry'
+    live.files['manifest.json'] = json.dumps(m).encode()
+    site.validate_manifest(m)
+    jobs = site.plan(REGION, m, current_recipe=1, max_cells=2, per_job=3)
+    assert jobs and all(c != DILLON for job in jobs for _r, c in job)
+    artifact(tmp_path, 0, [OTHER])
+    _c, out2 = run(tmp_path, live, 'site2')
+    new = json.loads((out2 / 'manifest.json').read_text())['regions'][0]['overview']
+    assert new == {'bytes': (out2 / 'colorado/overview.json.gz').stat().st_size, 'polygons': 2, 'points': 6}
+
+
+# Requirement: The manifest gives each region's overview
+def test_the_manifest_gives_the_overviews_size_and_counts(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    region = json.loads((out / 'manifest.json').read_text())['regions'][0]
+    assert region['overview'] == {'bytes': (out / 'colorado/overview.json.gz').stat().st_size,
+                                  'polygons': 1, 'points': 3}
+
+
+def header_rules():
+    rules, current = {}, None
+    for line in site.HEADERS.splitlines():
+        if line and not line.startswith(' '):
+            current = line
+            rules[current] = []
+        elif line.strip():
+            rules[current].append(line.strip())
+    return rules
+
+
+def rule_matches(rule, path):
+    """Cloudflare Pages _headers matching: `:name` is one segment, a trailing `*` any rest."""
+    import re
+    pattern = re.escape(rule).replace(r'\*', '.*')
+    pattern = re.sub(r':[a-z]+', '[^/]+', pattern)
+    return re.fullmatch(pattern, path) is not None
+
+
+# Requirement: The site sets its CORS and cache headers
+def test_each_path_matches_one_cache_rule():
+    rules = {k: v for k, v in header_rules().items() if any(x.startswith('Cache-Control') for x in v)}
+    for path, age in (('/colorado/overview.json.gz', 'max-age=3600'), (f'/colorado/{DILLON}/t1-4.json.gz', 'max-age=86400'),
+                      ('/LICENSE.txt', 'max-age=3600'), ('/manifest.json', 'max-age=300')):
+        hits = [k for k in rules if rule_matches(k, path)]
+        assert len(hits) == 1, (path, hits)
+        assert rules[hits[0]] == [f'Cache-Control: public, {age}']
+
+
+# Requirement: The deploy job writes the overview from the cells it publishes (attack test: a build job
+# can't supply its own overview)
+def test_rejects_an_overview_a_build_job_uploads(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    (root / 'overview.json.gz').write_bytes(b'not the deploy job\'s')
+    with pytest.raises(RuntimeError, match='did not build'):
+        prep(tmp_path)
