@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "A first deploy can replace a placeholder site": null,
+      "Files read back from the live site are checked": "c771d59a794e4e5516aa375d4a6dd1855ac915c81e8926679552195319e1e686"
+    }
+  }
+}

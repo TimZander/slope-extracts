@@ -51,14 +51,33 @@ def http_get(url, limit, timeout=120):
         raise RuntimeError(f'{url} answered {e.code}')
 
 
-def fetch_manifest(site_url=SITE_URL, get=http_get):
-    """The live site's manifest, or None when it has none yet (404)."""
+# A path no site holds. A site the pipeline deployed has a 404.html, so this answers 404 there; a Pages
+# project without one (the owner's placeholder) answers every path with 200.
+PROBE_PATH = '.first-deploy-probe-not-a-file'
+
+
+def first_deploy_on(env=None):
+    """The first-deploy switch: the repository variable FIRST_DEPLOY, on only when exactly 'true'."""
+    return (os.environ if env is None else env).get('FIRST_DEPLOY') == 'true'
+
+
+def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False):
+    """The live site's manifest, or None when it has none yet (404).
+
+    first_deploy: a manifest.json answering 200 with a body that isn't JSON is also None, when a path no
+    site holds answers 200 too (a placeholder with no 404.html, never a site this pipeline deployed)."""
     status, body = get(f'{site_url}/manifest.json', MAX_MANIFEST_BYTES)
     if status == 404:
         return None
     try:
-        return site.validate_manifest(json.loads(body))
-    except (ValueError, json.JSONDecodeError) as e:
+        doc = json.loads(body)
+    except ValueError as e:
+        if first_deploy and get(f'{site_url}/{PROBE_PATH}', MAX_MANIFEST_BYTES)[0] == 200:
+            return None
+        raise RuntimeError(f'the live manifest is not valid: {e}')
+    try:
+        return site.validate_manifest(doc)
+    except ValueError as e:
         raise RuntimeError(f'the live manifest is not valid: {e}')
 
 
@@ -221,7 +240,7 @@ def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON):
 
 
 def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None, site_url=SITE_URL, get=http_get,
-             log=print, output=None):
+             log=print, output=None, first_deploy=False):
     """plan_jobs / plan_had_manifest: what the plan job saw. A deploy that finds no live manifest when the
     plan found one fails, rather than publishing a site of this run's cells alone."""
     regions = regions or site.load_regions()
@@ -231,10 +250,10 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
     if not built:
         log('No cell was built this run: nothing to deploy.')
         return _out(output, False)
-    previous = fetch_manifest(site_url, get)
+    previous = fetch_manifest(site_url, get, first_deploy)
     if previous is None and plan_had_manifest:
-        raise RuntimeError('the live manifest answered 404, but the plan job read one: refusing to publish a site '
-                           'that would drop every earlier cell')
+        raise RuntimeError('the live manifest answered 404 (or the first-deploy switch read it as none), but the '
+                           'plan job read one: refusing to publish a site that would drop every earlier cell')
     cells = {r['id']: {} for r in regions}
     for r in (previous or {}).get('regions', []):
         if r['id'] in cells:
@@ -297,7 +316,7 @@ def main(argv=None):
         had = os.environ.get('PLAN_HAD_MANIFEST')
         if had not in ('true', 'false'):
             raise ValueError('PLAN_HAD_MANIFEST is not true or false')
-        assemble(args.artifacts, args.out, jobs, had == 'true')
+        assemble(args.artifacts, args.out, jobs, had == 'true', first_deploy=first_deploy_on())
     except (RuntimeError, ValueError, OSError) as e:
         print(f'::error::{safe(str(e))}', file=sys.stderr)
         return 1

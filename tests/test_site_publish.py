@@ -384,3 +384,107 @@ def test_license_lists_the_projects_used():
     text = site.license_text(m)
     assert 'public domain' in text and site.REPOSITORY_URL in text
     assert all(f'- {p}' in text for p in ('CO_A_2016', 'CO_B_2020', 'CO_C_2023'))
+
+
+# --- the first-deploy switch ------------------------------------------------------------------
+# Spec: slope-extract, "A first deploy can replace a placeholder site" and "Files read back from the
+# live site are checked".
+
+class PlaceholderSite(FakeSite):
+    """A Pages project with no 404.html: every missing path answers 200 with the placeholder's body."""
+    def __init__(self, files=None, body=b''):
+        super().__init__(files)
+        self.body = body
+
+    def get(self, url, limit):
+        path = url.split('slope.test/', 1)[1]
+        self.requests.append(path)
+        return 200, self.files.get(path, self.body)
+
+
+def fetch(live, first_deploy):
+    return publish.fetch_manifest('https://slope.test', live.get, first_deploy=first_deploy)
+
+
+@pytest.mark.parametrize('body', [b'', b'<!doctype html><title>placeholder</title>'])
+def test_first_deploy_reads_a_placeholder_as_no_manifest(body):
+    assert fetch(PlaceholderSite(body=body), True) is None
+
+
+def test_first_deploy_publishes_a_site_with_its_own_404(tmp_path, monkeypatch):
+    monkeypatch.delenv('GITHUB_OUTPUT', raising=False)
+    live = PlaceholderSite(body=b'<html>placeholder</html>')
+    artifact(tmp_path, 0, [DILLON])
+    changed = publish.assemble(str(tmp_path / 'artifacts'), str(tmp_path / 'site'), planned_jobs(tmp_path), False,
+                               regions=REGION, site_url='https://slope.test', get=live.get, log=lambda *_: None,
+                               first_deploy=True)
+    assert changed is True
+    assert (tmp_path / 'site' / '404.html').read_text() == site.NOT_FOUND_HTML
+    manifest = site.validate_manifest(json.loads((tmp_path / 'site' / 'manifest.json').read_text()))
+    assert set(manifest['regions'][0]['cells']) == {DILLON}
+
+
+@pytest.mark.parametrize('value', [None, 'false', 'True', '1', ''])
+def test_the_switch_is_only_exactly_true(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv('FIRST_DEPLOY', raising=False)
+    else:
+        monkeypatch.setenv('FIRST_DEPLOY', value)
+    assert publish.first_deploy_on() is False
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(PlaceholderSite(body=b'<html>placeholder</html>'), publish.first_deploy_on())
+
+
+def test_the_switch_on_reads_it_when_set_to_true(monkeypatch):
+    monkeypatch.setenv('FIRST_DEPLOY', 'true')
+    assert publish.first_deploy_on() is True
+
+
+def test_the_switch_left_on_over_a_live_site_keeps_its_cells(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    assert fetch(live, True) == site.validate_manifest(json.loads(live.files['manifest.json']))
+    artifact(tmp_path, 0, [OTHER])
+    changed = publish.assemble(str(tmp_path / 'artifacts'), str(tmp_path / 'site2'), planned_jobs(tmp_path), True,
+                               regions=REGION, site_url='https://slope.test', get=live.get, log=lambda *_: None,
+                               first_deploy=True)
+    assert changed is True
+    manifest = json.loads((tmp_path / 'site2' / 'manifest.json').read_text())
+    assert set(manifest['regions'][0]['cells']) == {DILLON, OTHER}
+
+
+def test_a_pipeline_site_whose_manifest_answers_html_is_not_forgiven():
+    live = FakeSite({'manifest.json': b'<html>an error page sent as 200</html>', '404.html': b'x'})
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live, True)
+
+
+@pytest.mark.parametrize('body', [b'{"regions": "no"}', b'[]', b'null'])
+def test_a_json_manifest_that_is_not_valid_fails_with_the_switch_on(body):
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(PlaceholderSite({'manifest.json': body}, body=b'<html>placeholder</html>'), True)
+
+
+def test_a_forgiven_manifest_after_the_plan_read_one_fails_the_deploy(tmp_path, monkeypatch):
+    monkeypatch.delenv('GITHUB_OUTPUT', raising=False)
+    live = PlaceholderSite(body=b'<html>placeholder</html>')
+    artifact(tmp_path, 0, [DILLON])
+    with pytest.raises(RuntimeError, match='refusing to publish'):
+        publish.assemble(str(tmp_path / 'artifacts'), str(tmp_path / 'site'), planned_jobs(tmp_path), True,
+                         regions=REGION, site_url='https://slope.test', get=live.get, log=lambda *_: None,
+                         first_deploy=True)
+    assert not (tmp_path / 'site').exists()
+
+
+def test_the_plan_and_the_assembler_read_the_switch(tmp_path, monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(publish, 'fetch_manifest', lambda *a, **k: seen.append(k.get('first_deploy')) or None)
+    monkeypatch.setenv('FIRST_DEPLOY', 'true')
+    assert site.main_plan([]) == 0
+    assert 'had_manifest=false' in capsys.readouterr().out
+    monkeypatch.setattr(publish, 'assemble', lambda *a, **k: seen.append(k.get('first_deploy')))
+    monkeypatch.setenv('PLAN_JOBS', '[]')
+    monkeypatch.setenv('PLAN_HAD_MANIFEST', 'false')
+    assert publish.main(['assemble', '--artifacts', str(tmp_path), '--out', str(tmp_path / 'o')]) == 0
+    assert seen == [True, True]

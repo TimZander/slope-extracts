@@ -119,3 +119,13 @@ def test_nothing_runs_until_building_is_turned_on():
     assert 'needs: plan' in j['build']
     assert re.search(r'needs: \[plan, build\]', j['deploy'])
 
+
+
+def test_the_first_deploy_switch_reaches_plan_and_assemble_through_env():
+    # Spec: slope-extract, "A first deploy can replace a placeholder site". A repository variable, not an
+    # input (ADR 0007), given to the two steps that read the live manifest and to no other.
+    assert WORKFLOW.count('FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}') == 2
+    plan, deploy = jobs()['plan'], jobs()['deploy']
+    assert 'FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}' in plan
+    assemble = deploy.split('- name: Assemble the site', 1)[1].split('- name:', 1)[0]
+    assert 'FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}' in assemble
