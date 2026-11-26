@@ -43,3 +43,14 @@ an older waiting one, and a running one is never cancelled.
   lost, and a cancelled run sends no failure notice.
 - [More deploys] → each run that built cells deploys once, as now; Cloudflare's Direct Upload sets no
   deployment limit that this pace reaches.
+
+## Review rounds
+
+- Spec review, round 1 (2026-11-26): no blocker; 4 should-fix, all taken (the newest waiting run starts,
+  older ones are dropped; reads past the CDN cache, with what was seen; the schedule after the backfill
+  and a cell that always fails as open questions with their assumptions), 3 consider, taken.
+- Security review (2026-11-26): no finding. The cron adds no input, trigger, permission or secret. The
+  query string is random (`secrets.token_hex`, `crypto.randomBytes`), never from the live site, and is
+  appended after a path built from checked ids, so it can't change which file is read or where its
+  bytes go; the size and hash checks are unchanged. Attack check: a real read of a path the edge still
+  cached (an old version 1 cell) answered 404 with the query string, the live deployment's answer.

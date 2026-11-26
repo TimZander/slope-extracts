@@ -229,7 +229,7 @@ test('a kept file Cloudflare lacks is read back, checked and uploaded, leaving n
     const sent = cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').flatMap(c => JSON.parse(c.body))
     assert.deepEqual(sent.map(s => s.key), [h])
     assert.deepEqual(Buffer.from(sent[0].value, 'base64'), bytes)
-    const siteGet = cf.calls.find(c => c.url === `/site${keptPath}`)
+    const siteGet = cf.calls.find(c => c.url.split("?")[0] === `/site${keptPath}`)
     assert.equal(siteGet.auth, undefined)
     assert.deepEqual(listTree(f.root), before)
   } finally {
