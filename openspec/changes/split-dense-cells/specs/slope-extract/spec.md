@@ -29,8 +29,8 @@ written whole, as before.
 
 Each quarter's layers SHALL hold the same tiers and classes as the whole cell's, with the polygons the
 cell would hold whole, clipped to the quarter's bounds: a polygon inside one quarter SHALL be written
-unchanged, and one crossing a quarter's edge SHALL be cut along it. Every point SHALL lie within its
-quarter. A quarter with no polygon in a class SHALL still be written, with that class empty.
+unchanged, and one crossing a quarter's edge SHALL be cut along it, each piece a polygon, in the whole
+cell's order. Every point SHALL lie within its quarter. A quarter with no polygon in a class SHALL still be written, with that class empty.
 
 #### Scenario: A polygon across the quarters' middle line
 
@@ -62,8 +62,8 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 ### Requirement: The manifest lists quartered cells apart from whole ones
 
 Each region SHALL have `quartered` (possibly empty) beside `cells`, mapping each split cell to its
-`recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four quarters, each with `layers`
-counted as a whole cell's are. A cell SHALL be in at most one of `cells` and `quartered`. The manifest
+`recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four quarters, each with exactly
+`layers`, counted and checked as a whole cell's are, the left-out marker's rules included. A cell SHALL be in at most one of `cells` and `quartered`. The manifest
 SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered cell as not yet built.
 
 #### Scenario: A region with one split cell
@@ -88,6 +88,11 @@ SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered ce
 - **WHEN** a build job's entry for a split cell lists three quarters
 - **THEN** the deploy job fails and nothing is deployed
 
+#### Scenario: The marker on a quarter's zoomed-out layer
+
+- **WHEN** the live manifest gives a quarter's `t1-4` `bytes` 0
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
+
 #### Scenario: A live manifest from before this change
 
 - **WHEN** the live manifest's regions have no `quartered` key
@@ -95,19 +100,25 @@ SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered ce
 
 ### Requirement: The deploy job accepts only well-formed split cells
 
-A split cell's folder in an artifact SHALL hold exactly `entry.json` and its four quarter folders, each
-holding exactly the layers its quarter's entry doesn't mark left out. Each quarter file SHALL pass the
-checks of a whole cell's, against its quarter's id and bounds, and be the size its entry gives. The
-deploy job SHALL fail, publishing nothing, otherwise.
+A split cell's `entry.json` SHALL have `quarters` and no `layers`, a whole cell's `layers` and no
+`quarters`. A split cell's folder SHALL hold exactly `entry.json` and its four quarter folders, each
+holding exactly the layers its quarter doesn't mark left out. Each quarter file SHALL pass a whole
+cell's checks against its quarter's id and bounds, to the same tolerance, and be the size its entry
+gives. The deploy job SHALL fail, publishing nothing, otherwise.
 
 #### Scenario: A quarter's point in the next quarter
 
-- **WHEN** a quarter file of a split cell holds a point that lies in another quarter of the same cell
+- **WHEN** a quarter file of a split cell holds a point 100 map units inside another quarter of the same cell
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: A whole-cell file beside the quarters
 
 - **WHEN** a split cell's folder also holds a `t1-4.json.gz` of the whole cell
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: An entry with both forms
+
+- **WHEN** a build job's `entry.json` has both `layers` and `quarters`
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: A quarter file naming another quarter
@@ -116,6 +127,40 @@ deploy job SHALL fail, publishing nothing, otherwise.
 - **THEN** the deploy job fails and nothing is deployed
 
 ## MODIFIED Requirements
+
+### Requirement: The deploy job accepts only well-formed cells
+
+The deploy job SHALL fail, publishing nothing, when:
+- an artifact holds anything but `jobs.txt`, an optional `failed.json` and one folder per listed cell
+- a whole cell's folder holds anything but `entry.json` and the layers its entry doesn't mark left out
+- any of these files is not regular, or is over 20 MiB
+- a file is not exactly the slope-cell form of its path (classes per tier, points within its cell or
+  quarter), or `entry.json` holds keys or values the manifest doesn't allow
+
+#### Scenario: A hostile artifact
+
+- **WHEN** a build job uploads an `index.html` beside its cells
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A symbolic link
+
+- **WHEN** a layer file is a symbolic link
+- **THEN** the deploy job fails
+
+#### Scenario: A stray key
+
+- **WHEN** a cell file carries an extra top-level key
+- **THEN** the deploy job fails
+
+#### Scenario: A left-out layer's file is there anyway
+
+- **WHEN** a cell's entry marks `t0-2m` left out but its folder holds a `t0-2m.json.gz`
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A layer missing without the marker
+
+- **WHEN** a cell's folder lacks `t0-2m.json.gz` and its entry gives `t0-2m` a size above 0
+- **THEN** the deploy job fails and nothing is deployed
 
 ### Requirement: A cell is three gzip JSON layer files
 
@@ -196,7 +241,7 @@ checks. The deploy job SHALL fail before the wrangler step otherwise, or when:
 
 #### Scenario: A live cell without its 2 m layer
 
-- **WHEN** the live manifest lists a cell whose `t0-2m` is marked left out, and a run builds another cell
+- **WHEN** the live manifest lists a cell whose `t0-2m` is marked left out, and a run builds another cell but not it
 - **THEN** the deploy job reads back that cell's `t0-3m` and `t1-4`, requests no `t0-2m`, and the new
   manifest keeps its entry as it was
 
@@ -211,6 +256,12 @@ checks. The deploy job SHALL fail before the wrangler step otherwise, or when:
 - **WHEN** the live manifest lists a cell in `cells`, and this run builds it split
 - **THEN** the new manifest lists it in `quartered` only, the site holds its quarters' files and none
   of its whole-cell files, and the deploy goes ahead
+
+#### Scenario: A split cell fits whole again
+
+- **WHEN** the live manifest lists a cell in `quartered`, and this run builds it whole
+- **THEN** the new manifest lists it in `cells` only, and the site holds its whole-cell files and none
+  of its quarters'
 
 #### Scenario: The switch forgives a manifest the plan job read
 

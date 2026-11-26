@@ -7,6 +7,7 @@
       "A quarter file names its cell and its quarter": null,
       "The manifest lists quartered cells apart from whole ones": null,
       "The deploy job accepts only well-formed split cells": null,
+      "The deploy job accepts only well-formed cells": "a1a741fb4c6ab21fc8883ad5305f7f14a316780c1ff2bb99e994d84540756c50",
       "A cell is three gzip JSON layer files": "b1965d70b37af1dc7c8d007c16cf77ab68e064cea40db4fd3b4afd556dfd3bf9",
       "The manifest lists each region's coverage and built cells": "e7ea65bc650f77e400bf601b1a695873952d34fefc78cbab5a843b4c595535e4",
       "A run builds missing and stale cells, at most 48": "4ddeb1ed0f00e8ec213284cd63f9ccf9dd375a1da2f312a4cabe98ffa0219e29",

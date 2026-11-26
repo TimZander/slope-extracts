@@ -42,5 +42,6 @@ four 0.125° quarter cells, as osm-extracts does for its dense cells.
   tests, README.
 - The manifest's and cell files' readers: a new region key `quartered`, and quarter files with a
   `quarter` key. Readers that ignore `quartered` keep working on unsplit cells and miss only the
-  quartered ones. Owner's decisions, 2026-11-26.
+  quartered ones. Owner's decisions, 2026-11-26. The manifest's reader needs its own matching change to
+  read `quartered` and quarter files; that change belongs to the reader's repository, not this one.
 - The build workflow file doesn't change.

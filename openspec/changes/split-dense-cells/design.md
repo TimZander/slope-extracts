@@ -43,37 +43,45 @@ recipe or any whole cell's bytes; changing the build workflow file.
 
 ### Claude's
 
-5. **The split replaces the skip; the skip stays as the fallback.** A cell over a limit is quartered
-   rather than losing its `t0-2m`. If a quarter's `t0-2m` is still over a limit, that quarter is
+5. **The split replaces the skip; the skip stays as the fallback** (the owner asked Claude to decide
+   this and say so here). A cell over a limit is quartered rather than losing its `t0-2m`. If a quarter's `t0-2m` is still over a limit, that quarter is
    written without it, with the stop-gap's marker, so one file still can't block the deploy. A
    quarter's `t0-3m` or `t1-4` over a limit fails the cell, as a whole cell's did. Rejected: the split
    alone, failing a cell whose quarter is still too large (a dense enough cell would block its job
    again); splitting again into sixteenths (a second level for a case not yet seen).
-6. **Quarters are cut from the whole cell's polygons, not built from the DEM.** The cell is built once,
-   as now; its polygons, already sieved, simplified and filtered by area, are clipped to each quarter's
-   box in map units, and a ring cut by a quarter's edge gets its new points rounded to map units. So a
-   split cell holds exactly what it would whole, cut along the quarter lines, and nothing near a
-   quarter's edge passes or fails differently. Rejected: building each quarter from its own buffered
-   DEM frame (four times the DEM reads, and the area filter would judge pieces of a polygon, not the
-   polygon).
-7. **A whole cell the live manifest lists with a layer left out is planned again**, so the stop-gap's
-   two cells are rebuilt as quarters without a recipe bump, which would rebuild all 464. A quartered
-   cell with a quarter's layer left out is not planned again: it would only build the same way each run.
+6. **Quarters are cut from the whole cell's polygons** and **7. a whole cell with a layer left out is
+   planned again**: open questions 1 and 2 below; the change proceeds on them.
 8. **No recipe bump:** no number in `recipe.py` changes, and a cell under the limits builds to the same
    bytes.
 9. **The artifact's `entry.json` of a split cell** has the manifest entry's form plus `cell`, and the
    cell's folder holds only `entry.json` and the four quarter folders.
-10. **The overview reads a split cell's four `t1-4` quarters** in place of its one `t1-4` file, ordered
+10. **The deploy job still accepts a whole cell with `t0-2m` left out**, in an artifact as in the live
+    manifest: the build job no longer writes one, but the deploy job's checks don't change for whole
+    cells, and the live manifest holds two such cells until they are rebuilt. A whole cell's marker
+    can't get an oversize file published.
+11. **The overview reads a split cell's four `t1-4` quarters** in place of its one `t1-4` file, ordered
     qrow then qcol, south-west first, as cells are ordered.
 
 ## Open Questions
 
-- **Is `quartered` always present, or only when a region has a split cell?** Assumption: always
-  present, `{}` when empty, as osm-extracts always writes `split`, so a reader that knows quarters
-  never has to test for the key. A live manifest without it (every manifest before this change) is read
-  as having none. Either way an old reader ignores it.
-- **Does a quarter object hold anything but `layers`?** Assumption: exactly `layers`, so a later
-  per-quarter field is an addition, not a change.
+1. **Are quarters cut from the whole cell's polygons, or built from the DEM?** Assumption: cut. The
+   cell is built once, as now; its polygons, already sieved, simplified and filtered by area, are
+   clipped to each quarter's box in map units, each cut piece a polygon in the whole cell's order, and
+   the new points on a quarter's edge rounded to map units. So a split cell holds exactly what it would
+   whole, cut along the quarter lines. The other way: build each quarter from its own buffered DEM
+   frame (four times the DEM reads, and the area filter would judge pieces of a polygon, not the
+   polygon, so a quarter's edge would differ from the cell's other edges).
+2. **Is a whole cell the live manifest lists with a layer left out planned again?** Assumption: yes, so
+   the stop-gap's two cells are rebuilt as quarters on the next run without a recipe bump, which would
+   rebuild all 464. A quartered cell with a quarter's layer left out is not planned again: it would
+   build the same way each run. Without this rule the two cells stay whole without `t0-2m` until the
+   yearly refresh.
+3. **Is `quartered` always present, or only when a region has a split cell?** Assumption: always
+   present, `{}` when empty, as osm-extracts always writes `split`, so a reader that knows quarters
+   never has to test for the key. A live manifest without it (every manifest before this change) is read
+   as having none. Either way an old reader ignores it.
+4. **Does a quarter object hold anything but `layers`?** Assumption: exactly `layers`, so a later
+   per-quarter field is an addition, not a change.
 
 ## Risks / Trade-offs
 
@@ -99,4 +107,9 @@ whole with `t0-2m` left out.
 
 ## Review rounds
 
-(Recorded as they happen.)
+- Spec review, round 1 (2026-11-26): 1 blocker (the unchanged deploy-checks requirement refused every
+  split cell; now modified), 6 should-fix (the quarter check's tolerance, the split entry's form, a
+  whole cell's marker in an artifact, the marker's rules in quarters, decisions 6 and 7 made open
+  questions, the reader's follow-up), 6 consider (ADR tasks, polygon order, a quarter object's keys,
+  the read-back scenario's premise, quartered back to whole: all taken; renaming "An oversize 2 m layer
+  is left out of its cell", which now applies to quarters, not taken: a REMOVED plus ADDED for a name).
