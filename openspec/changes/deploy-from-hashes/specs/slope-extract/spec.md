@@ -74,8 +74,9 @@ it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept 
 
 The deploy job SHALL ask Cloudflare which of the deployment's hashes it lacks, upload only those files,
 then confirm every hash of the deployment to Cloudflare. A lacking file in the run's folder SHALL be
-uploaded from it; any other SHALL be read back, at most its manifest size, a bucket at a time without
-writing it to disk, and uploaded only if it hashes to its `hashes.json` entry; else the deploy fails.
+uploaded from it; any other SHALL be read back, a bucket at a time without writing it to disk, and
+uploaded only if it is its manifest size, passes the cell-file checks and hashes to its `hashes.json`
+entry; else the deploy fails.
 
 #### Scenario: Only new files
 
@@ -91,6 +92,11 @@ writing it to disk, and uploaded only if it hashes to its `hashes.json` entry; e
 
 - **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with more bytes than the manifest gives it
 - **THEN** the deploy job fails without reading past that size, and no deployment is created
+
+#### Scenario: A kept file re-read that isn't a cell file
+
+- **WHEN** Cloudflare lacks a kept file's hash, and the live site serves at that path bytes of its manifest size that hash to its `hashes.json` entry but aren't a slope-cell file of that cell and layer
+- **THEN** the deploy job fails and no deployment is created
 
 #### Scenario: A re-read leaves no file
 
@@ -206,7 +212,7 @@ beside it. A run that built no cell SHALL deploy nothing.
 
 ### Requirement: Files read back from the live site are checked
 
-Each file read back to assemble the site SHALL be the size the live manifest gives it and pass the cell-file
+Each file read back from the live site SHALL be the size the live manifest gives it and pass the cell-file
 checks. The deploy job SHALL fail before the deployment is created otherwise, or when:
 - the live manifest is invalid, unless the first-deploy switch reads it as no manifest
 - a file it lists answers 404

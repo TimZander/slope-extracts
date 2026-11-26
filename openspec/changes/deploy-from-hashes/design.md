@@ -62,12 +62,15 @@ without the `t1-4` files.
    5. get the upload token (curl, the secrets);
    6. upload (Node, the JWT file only);
    7. create the deployment (curl, the secrets).
-6. **A kept file Cloudflare lacks** is read back from the live site by the upload step, hashed, and
-   uploaded only if the hash matches `hashes.json`. A match means the bytes are those the site
-   published and checked before, so it isn't checked again; that is why "Files read back … are
-   checked" covers only the reads that assemble the site. The upload step streams these reads one
-   bucket (at most 40 MiB) at a time and writes none of them to disk. Cloudflare doesn't say how long
-   it keeps an unreferenced asset, and runs may stop for months after the backfill.
+6. **A kept file Cloudflare lacks** is read back from the live site by the upload step, and uploaded
+   only if it is exactly its manifest size, passes the cell-file checks (`deploy/check_cell.py`, the
+   assemble step's own checks, fed the bytes on stdin) and hashes to its `hashes.json` entry. The live
+   site is hostile in this model, and its `manifest.json` and `hashes.json` could be made to agree, so
+   the hash alone proves nothing (security review, 2026-11-26). With every file read back checked, each
+   hash Cloudflare holds for the project is bytes this pipeline checked before uploading. The upload
+   step streams these reads one bucket (at most 40 MiB) at a time and writes none of them to disk.
+   Cloudflare doesn't say how long it keeps an unreferenced asset, and runs may stop for months after
+   the backfill.
 6a. **Files read back to assemble the site** (every kept `t1-4`, and kept files `hashes.json` doesn't
    list) go into `_site/` beside this run's files and are deployed from the bytes read. The hash step
    hashes all of `_site/`, and fails when a read-back file `hashes.json` lists hashes to another value.
@@ -149,3 +152,7 @@ the site.
   and branch of both curl calls, no install script in the locked package. In code: the token's file is
   removed even when the script fails before uploading; re-reads ask for no compression, as the Python
   reader does. The ADRs and the security review were still to do.
+- Security review of the deploy job (a read-only review agent, 2026-11-26): no finding at confidence 8
+  or more. One medium finding (confidence 6) taken: a kept file re-read for Cloudflare was checked only
+  against a hash from the same live site; it now must be its manifest size and pass the cell-file
+  checks too, which restores "Files read back from the live site are checked" to every read.
