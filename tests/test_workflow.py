@@ -273,3 +273,15 @@ def test_attack_a_refused_call_leaves_nothing_and_prints_nothing(tmp_path):
     assert r.returncode != 0
     assert 'SECRET-BODY' not in r.stdout + r.stderr and TOKEN not in r.stdout + r.stderr
     assert list(temp.iterdir()) == []
+
+
+# Requirement: The deploy job checks the live site once deployed ("The check holds no secret")
+def test_the_live_site_is_checked_after_the_deployment_without_a_secret():
+    steps = deploy_steps()
+    names = list(steps)
+    assert names[-1] == 'Check the live site'
+    st = steps['Check the live site']
+    assert 'secrets.' not in st and 'env:' not in st
+    assert "if: steps.site.outputs.changed == 'true'" in st
+    assert 'run: python3 -m slope_extracts.publish verify --site _site\n' in st + '\n'
+    assert names.index('Create the deployment') < names.index('Check the live site')

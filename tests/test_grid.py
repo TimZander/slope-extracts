@@ -2,6 +2,7 @@
 empty layers, and the first run that moves a version 1 site onto the grid."""
 import datetime
 import json
+import re
 import pathlib
 
 import pytest
@@ -704,3 +705,97 @@ def test_a_version_1_cell_no_area_covers_fails_even_when_more_are_built(tmp_path
     artifact(tmp_path, [OTHER, NEIGHBOUR])  # 3 cells after, 2 before; 0_0 is left out
     with pytest.raises(RuntimeError, match='leave out'):
         run(tmp_path, live)
+
+
+# --- the check once deployed ----------------------------------------------------------------------
+# Requirement: The deploy job checks the live site once deployed
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def sleep(self, s):
+        self.sleeps.append(s)
+        self.now += s
+
+
+def deployed_live(tmp_path, cells=(DILLON, OTHER), split=()):
+    """A live site with an earlier deployment, then this run's folder deployed (with its hashes.json)."""
+    live = published(tmp_path, cells=(NEIGHBOUR,))
+    before = dict(live.files)
+    artifact(tmp_path, list(cells), split=split)
+    _c, out = run(tmp_path, live, name='second')
+    live.publish(out)
+    (out / 'hashes.json').write_bytes(live.files['hashes.json'])
+    return live, out, before
+
+
+def verify(live, out, clock=None, get=None):
+    clock = clock or Clock()
+    return publish.verify_live(str(out), URL, get or live.get, sleep=clock.sleep, clock=lambda: clock.now)
+
+
+def test_a_deployment_that_went_live_passes(tmp_path):
+    live, out, _b = deployed_live(tmp_path, split=('158_-427',))
+    live.requests.clear()
+    verify(live, out)
+    cells = [r for r in live.requests if r.startswith('cells/')]
+    built_tiles = {t for t, e in json.loads(live.files['manifest.json'])['tiles'].items() if e['built']}
+    assert len(cells) == len(built_tiles) == 2
+    assert {grid.tile_of(r.split('/')[1]) for r in cells} == built_tiles
+    assert 'hashes.json' in live.requests and all(f'tiles/{t}/index.json' in live.requests for t in built_tiles)
+
+
+def test_a_deployment_slow_to_go_live_is_read_again(tmp_path):
+    live, out, before = deployed_live(tmp_path)
+    reads = {'n': 0}
+    def get(url, limit):
+        if url.endswith('/manifest.json'):
+            reads['n'] += 1
+            if reads['n'] <= 2:
+                return 200, before['manifest.json']
+        return live.get(url, limit)
+    clock = Clock()
+    verify(live, out, clock, get)
+    assert reads['n'] >= 3 and len(clock.sleeps) == 2
+
+
+def test_a_deployment_that_never_goes_live_fails(tmp_path):
+    live, out, before = deployed_live(tmp_path)
+    live.files['manifest.json'] = before['manifest.json']
+    clock = Clock()
+    with pytest.raises(RuntimeError, match='not the one deployed'):
+        verify(live, out, clock)
+    assert 590 <= clock.now <= 640
+
+
+@pytest.mark.parametrize('broken', ['tile index', 'cell size', 'cell content', 'hashes', 'cell 404'])
+def test_a_broken_live_file_fails_naming_it(tmp_path, broken):
+    live, out, _b = deployed_live(tmp_path)
+    cell_file = next(p for p in sorted(live.files) if p.startswith(f'cells/{DILLON}/') and p.endswith('t1-4.json.gz'))
+    if broken == 'tile index':
+        live.files['tiles/19_-54/index.json'] += b' '
+        name = 'tiles/19_-54/index.json'
+    elif broken == 'cell size':
+        live.files[cell_file] += b'\0'
+        name = cell_file
+    elif broken == 'cell content':
+        other = live.files[cell_file.replace(DILLON, NEIGHBOUR)]
+        live.files[cell_file] = other + b'\0' * (len(live.files[cell_file]) - len(other)) if len(other) <= len(live.files[cell_file]) else other[:len(live.files[cell_file])]
+        name = DILLON
+    elif broken == 'hashes':
+        live.files['hashes.json'] = live.files['hashes.json'].replace(b'"files"', b'"files" ')
+        name = 'hashes.json'
+    else:
+        del live.files[cell_file]
+        name = cell_file
+    with pytest.raises(RuntimeError, match=re.escape(name)):
+        verify(live, out)
+
+
+def test_attack_a_live_site_answering_a_path_outside_the_site_is_never_asked(tmp_path):
+    live, out, _b = deployed_live(tmp_path)
+    live.requests.clear()
+    verify(live, out)
+    assert all(not r.startswith(('/', '.')) and '..' not in r for r in live.requests)
