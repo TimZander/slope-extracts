@@ -42,26 +42,78 @@ def test_only_deploy_uses_the_environment_and_secrets():
             assert 'environment:' not in body and 'secrets.' not in body, name
 
 
-def test_secrets_only_in_the_wrangler_step():
-    deploy = jobs()['deploy']
-    steps = re.split(r'\n      - ', deploy)
-    with_secrets = [st for st in steps if 'secrets.' in st]
-    assert len(with_secrets) == 1
-    step = with_secrets[0]
-    assert step.startswith('name: Deploy to Pages')
-    assert 'run: ./node_modules/.bin/wrangler pages deploy ../_site --project-name=slope-extracts --branch=main' in step
+def deploy_steps():
+    return {st.split('\n', 1)[0].removeprefix('name: '): st for st in re.split(r'\n      - ', jobs()['deploy'])}
+
+
+TOKEN_STEPS = ('Get an upload token', 'Create the deployment')
+
+
+# Requirement: The Cloudflare token reaches two curl calls only ("Reading the deploy job")
+def test_secrets_only_in_the_two_curl_steps():
+    steps = deploy_steps()
+    with_secrets = [name for name, st in steps.items() if 'secrets.' in st]
+    assert with_secrets == list(TOKEN_STEPS)
     assert set(re.findall(r'secrets\.([A-Z_]+)', WORKFLOW)) == {'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'}
-    # it runs after the step that checks the artifacts and the install, which holds no secret
-    assert deploy.index('slope_extracts.publish assemble') < deploy.index('npm ci --ignore-scripts') < deploy.index('name: Deploy to Pages')
+    deploy = jobs()['deploy']
+    order = [deploy.index(x) for x in ('slope_extracts.publish assemble', 'npm ci --ignore-scripts', 'pages.mjs hash',
+                                       'name: Get an upload token', 'pages.mjs upload', 'name: Create the deployment')]
+    assert order == sorted(order)
+    for name in TOKEN_STEPS:
+        run = steps[name].split('run: |\n', 1)[1]
+        programs = [line.split()[0] for line in run.splitlines() if line.strip()]
+        # curl is the only program that talks to Cloudflare, and only api.cloudflare.com is named
+        assert programs.count('curl') == 1, name
+        assert set(re.findall(r'https://([^/"\s]+)', run)) == {'api.cloudflare.com'}, name
+    assert 'wrangler' not in WORKFLOW.split('\njobs:\n', 1)[1]
 
 
-def test_wrangler_comes_from_the_lockfile_without_install_scripts():
+# Requirement: The Cloudflare token reaches two curl calls only ("Reading a token step")
+def test_the_token_reaches_curl_only_through_files():
+    builtins = {'umask', 'trap', 'printf', 'unset'}
+    for name in TOKEN_STEPS:
+        run = deploy_steps()[name].split('run: |\n', 1)[1]
+        lines = [line.strip() for line in run.splitlines() if line.strip()]
+        joined = ' '.join(lines).replace('\\ ', '')
+        uses = [i for i, line in enumerate(lines) if '$CLOUDFLARE_API_TOKEN' in line or '$CLOUDFLARE_ACCOUNT_ID' in line]
+        # the secrets are read only by printf, into the header and config files
+        assert [lines[i].split()[0] for i in uses] == ['printf', 'printf'], name
+        assert '> "$RUNNER_TEMP/cf-auth"' in lines[uses[0]] and '> "$RUNNER_TEMP/cf-curl"' in lines[uses[1]], name
+        unset = lines.index('unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID')
+        # nothing but builtins runs before the unset
+        assert all(line.split()[0] in builtins for line in lines[:unset]), name
+        assert lines[0] == 'umask 077' and lines[1].startswith("trap 'rm -f \"$RUNNER_TEMP/cf-auth\" \"$RUNNER_TEMP/cf-curl\" \"$RUNNER_TEMP/cf-answer\"' EXIT"), name
+        curl = next(line for line in lines if line.startswith('curl '))
+        assert '-K "$RUNNER_TEMP/cf-curl"' in joined and '-H @"$RUNNER_TEMP/cf-auth"' in joined, name
+        assert '-o "$RUNNER_TEMP/cf-answer"' in joined and curl.startswith('curl -fsS --max-time '), name
+        assert ' -v' not in joined and 'set -x' not in joined and '--trace' not in joined, name
+        assert 'GITHUB_OUTPUT' not in run and 'GITHUB_ENV' not in run, name
+
+
+# Requirement: The upload token stays out of the log ("Reading the token step")
+def test_the_upload_token_is_masked_before_its_file_is_written():
+    step = deploy_steps()['Get an upload token']
+    assert 'python3 -I deploy/cf_answer.py jwt "$RUNNER_TEMP/cf-answer" "$RUNNER_TEMP/pages-jwt"' in step
+    code = (ROOT / 'deploy/cf_answer.py').read_text()
+    jwt = code.split('def jwt(', 1)[1].split('\ndef ', 1)[0]
+    assert jwt.index('::add-mask::') < jwt.index('os.open(')
+    assert '0o600' in jwt
+    upload = deploy_steps()['Upload the new files']
+    assert 'secrets.' not in upload and 'env:' not in upload
+    assert '--jwt-file "$RUNNER_TEMP/pages-jwt"' in upload
+
+
+# Requirement: The deploy's one package is installed from its lockfile
+def test_the_one_package_comes_from_the_lockfile_without_install_scripts():
     pkg = json.loads((ROOT / 'deploy/package.json').read_text())
-    assert pkg['dependencies'] == {'wrangler': '3.114.17'} and 'scripts' not in pkg
+    assert pkg['dependencies'] == {'blake3-wasm': '2.1.5'} and 'scripts' not in pkg
     lock = json.loads((ROOT / 'deploy/package-lock.json').read_text())
-    assert lock['packages']['node_modules/wrangler']['version'] == '3.114.17'
-    assert all('integrity' in v for k, v in lock['packages'].items() if k)
-    assert 'npm ci --ignore-scripts --no-audit --no-fund' in WORKFLOW
+    packages = {k: v for k, v in lock['packages'].items() if k}
+    assert list(packages) == ['node_modules/blake3-wasm']
+    assert packages['node_modules/blake3-wasm']['version'] == '2.1.5'
+    assert packages['node_modules/blake3-wasm']['integrity'].startswith('sha512-')
+    install = deploy_steps()['Install the hashing package']
+    assert 'npm ci --ignore-scripts --no-audit --no-fund' in install and 'secrets.' not in install
     assert 'npm install' not in WORKFLOW and 'npx' not in WORKFLOW
 
 
