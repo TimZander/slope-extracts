@@ -150,7 +150,7 @@ async function fakeCloudflare ({ missing = [], live = {}, fail = {}, failAlways 
       const url = req.url
       calls.push({ url, method: req.method, auth: req.headers.authorization, body })
       if (url.startsWith('/site/')) {
-        const p = url.slice('/site'.length)
+        const p = url.slice('/site'.length).split('?')[0]
         if (!(p in live)) { res.writeHead(404); return res.end() }
         res.writeHead(200)
         return res.end(live[p])
@@ -408,10 +408,35 @@ test('a moved kept file Cloudflare lacks is read back from its old path', async 
   const cf = await fakeCloudflare({ missing: [h], live: { '/colorado/158_-425/t0-3m.json.gz': bytes } })
   try {
     await runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} })
-    assert.ok(cf.calls.some(c => c.url === '/site/colorado/158_-425/t0-3m.json.gz'))
-    assert.ok(!cf.calls.some(c => c.url === '/site/cells/158_-425/t0-3m.json.gz'))
+    assert.ok(cf.calls.some(c => c.url.split('?')[0] === '/site/colorado/158_-425/t0-3m.json.gz'))
+    assert.ok(!cf.calls.some(c => c.url.split('?')[0] === '/site/cells/158_-425/t0-3m.json.gz'))
     const sent = cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').flatMap(c => JSON.parse(c.body))
     assert.deepEqual(sent.map(s => s.key), [h])
+  } finally {
+    cf.server.close()
+  }
+})
+
+// Requirement: The pipeline reads the live site past its edge cache
+test('every re-read from the live site carries a query string of its own', async () => {
+  const kept = {}
+  const live = {}
+  for (const l of ['t0-3m', 't0-2m']) {
+    const bytes = cellFile(l)
+    const h = pagesHash(bytes, `${l}.json.gz`)
+    kept[`/cells/158_-425/${l}.json.gz`] = { hash: h, bytes: bytes.length }
+    live[`/cells/158_-425/${l}.json.gz`] = bytes
+  }
+  const f = fixture({ kept })
+  runHash({ site: f.site, state: f.state })
+  const cf = await fakeCloudflare({ missing: Object.values(kept).map(k => k.hash), live })
+  try {
+    await runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} })
+    const reads = cf.calls.filter(c => c.url.startsWith('/site/')).map(c => c.url)
+    assert.equal(reads.length, 2)
+    const queries = reads.map(u => u.split('?')[1])
+    assert.ok(queries.every(q => q && q.length >= 8), reads.join(' '))
+    assert.equal(new Set(queries).size, 2)
   } finally {
     cf.server.close()
   }
