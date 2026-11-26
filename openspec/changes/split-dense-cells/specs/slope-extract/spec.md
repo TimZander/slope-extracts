@@ -64,8 +64,8 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 Each region SHALL have `quartered` (possibly empty) beside `cells`, mapping each split cell to its
 `recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four quarters, each with exactly
 `layers`, counted and checked as a whole cell's are, the left-out marker's rules included. A
-`quartered` entry SHALL have no `layers`, and a `cells` entry no `quarters`. A cell SHALL be in at most one of `cells` and `quartered`. The manifest
-SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered cell as not yet built.
+`quartered` entry SHALL have no `layers`, and a `cells` entry no `quarters`. A cell SHALL be in at
+most one of `cells` and `quartered`. The manifest SHALL keep `version` 1.
 
 #### Scenario: A region with one split cell
 
