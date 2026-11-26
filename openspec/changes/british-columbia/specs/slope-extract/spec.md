@@ -27,13 +27,19 @@ the catalogue's answer that meet the frame and have a valid id.
 ### Requirement: The catalogue must answer before a cell is built empty
 
 An `hrdem` cell's build SHALL fail, keeping its previous files, when the catalogue lists no mosaic tile
-with a trusted DTM URL for its frame (the mosaic's tiles cover all of Canada, so an empty answer is a
-failure, not a place without lidar), or when a catalogue request fails.
+with a trusted DTM URL for its frame (the mosaic covers all of Canada, so an empty answer is a failure),
+when a catalogue request fails or answers in over 20 pages or 8 MiB, or, before it is built empty, when
+the projects search over a place known to have lidar (Vancouver) finds none.
 
 #### Scenario: An empty answer
 
 - **WHEN** the catalogue answers with no mosaic tile for an `hrdem` cell's frame
 - **THEN** the cell fails, keeps its previous files, and is planned again by the next run
+
+#### Scenario: The projects search answers empty everywhere
+
+- **WHEN** the catalogue lists mosaic tiles, but its projects search finds none for a cell's frame and none over Vancouver
+- **THEN** the cell fails and keeps its previous files, rather than being built empty
 
 ### Requirement: An hrdem cell with no lidar project is built empty without reading elevation
 
@@ -48,13 +54,18 @@ the cell SHALL be built with no raster read: its entry's `sources` SHALL be `lid
 
 ### Requirement: A cell has one elevation source
 
-A cell's source SHALL be the `source` of the areas covering it. An areas list in which areas of two
-sources cover one cell SHALL fail the plan job.
+A cell's source SHALL be the `source` of the areas covering it, and a cell no area covers SHALL fail
+its build. An areas list in which areas of two sources cover one cell SHALL fail the plan job.
 
 #### Scenario: A cell two sources cover
 
 - **WHEN** a `3dep` area and an `hrdem` area both cover cell `196_-470`
 - **THEN** the plan job fails and no cell is built
+
+#### Scenario: A cell no area covers
+
+- **WHEN** a build job is given cell `0_0`, which no area covers
+- **THEN** that cell fails and nothing is read for it
 
 ## MODIFIED Requirements
 
