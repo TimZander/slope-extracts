@@ -81,14 +81,36 @@ SHALL have no overview.
 ### Requirement: The manifest lists tiles and areas
 
 `manifest.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
-`layers`, `tiles`, mapping each tile with a covered cell to its `covered` and `built` counts (one number
-each, split cells counted), its `index` bytes and, when it has one, its `overview` (`bytes`, `polygons`,
-`points`); and `areas`, each with `id`, `name`, `boxes` and `tiles`: the tiles holding cells it covers.
+`layers`, `tiles`, mapping each tile with a covered cell to its entry, and `areas`, in `areas.json`'s
+order, each with `id`, `name`, `boxes` and `tiles` (the tiles holding cells it covers). The boxes describe
+an area; whether a cell exists is the tiles' to say.
 
 #### Scenario: Colorado's manifest
 
 - **WHEN** only Colorado is listed and 10 of its cells are built
 - **THEN** `manifest.json` is version 2, its `areas` holds Colorado with its box and its 12 tiles, and the tiles' `built` counts sum to 10
+
+#### Scenario: Areas in their list's order
+
+- **WHEN** `areas.json` lists `colorado` then `utah`
+- **THEN** the manifest's `areas` lists `colorado` then `utah`
+
+### Requirement: A tile's entry counts and masks its cells
+
+A tile's entry SHALL hold exactly `covered` and `built` (counts of cells, a split cell once),
+`coveredMask` and `builtMask`, `indexBytes` (its index's size) and, when it has a built cell, `overview`
+(`bytes`, `polygons`, `points`). A mask is 64 bits, bit (row − 8 × trow) × 8 + (col − 8 × tcol) set for
+each such cell, a split cell one bit, written as 16 lowercase hex digits, bit 0 last.
+
+#### Scenario: One built cell's mask
+
+- **WHEN** tile `19_-54` (rows 152–159, columns −432 to −425) has cells `152_-432` and `158_-425` built, `158_-425` split
+- **THEN** its `built` is 2 and its `builtMask` is `0080000000000001`: bit 0 for `152_-432`, bit 55 for `158_-425`
+
+#### Scenario: Masks that disagree with the tile index
+
+- **WHEN** a live tile index's `coverage` holds a cell whose bit the tile's `coveredMask` lacks
+- **THEN** the plan job fails with "the live manifest is not valid"
 
 #### Scenario: A tile overview's entry
 
@@ -121,7 +143,7 @@ count tier `0`.
 
 The plan and deploy jobs SHALL read `manifest.json` and each tile index it lists (each at most 4 MiB),
 and fail when any isn't of its form, a listed tile index answers other than 200 or isn't the size the
-manifest gives it, a tile index lists a cell outside its tile, or its counts differ from the manifest's.
+manifest gives it, a tile index lists a cell outside its tile, or its counts or masks differ from the manifest's.
 A tile's `overview` entry is used for nothing. The deploy job SHALL fail when it reads another manifest
 version than the plan job did.
 

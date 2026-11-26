@@ -50,12 +50,13 @@ cell file's form or the recipe.
 
 ## Open Questions
 
-1. **The manifest's and tile files' names and keys.** Assumption: `manifest.json` `slope-extract`
-   version 2 (`tiles`: `covered`, `built`, `index`, `overview`; `areas`: `id`, `name`, `boxes`,
-   `tiles`), `slope-tile` version 1 tile indexes with today's entries, `slope-overview` version 2 tile
-   overviews (`tile` in place of `region`). These are the reader's contract; the reader's change may ask
-   for other names.
-2. **Order of building.** Assumption: areas in list order, each area's cells in row then column order,
+1. **The manifest's and tile files' names and keys.** Partly answered (owner, 2026-11-26, from the
+   app's side; ADR 0032): a tile's entry carries `coveredMask` and `builtMask`, so the app plans by cell
+   from the manifest alone; the index's size is `indexBytes`; `covered` and `built` count a split cell
+   once; `areas` keep `areas.json`'s order, which the app uses to name them, and their boxes are only
+   descriptive. Still assumed: `slope-extract` version 2, `slope-tile` version 1 tile indexes with
+   today's entries, `slope-overview` version 2 tile overviews.
+2. **Order of building.** Assumption: areas in list order (the order the manifest lists them in), each area's cells in row then column order,
    a shared cell when its first area reaches it.
 3. **A region's `only` list.** Assumption: dropped; unused since ADR 0010, and a small box does the same.
 4. **Removing or shrinking an area.** Assumption: as removing a region today, the deploy refuses a site

@@ -7,6 +7,7 @@
       "Cells are indexed by 2-degree tiles": null,
       "Each tile has an overview of its built cells' tier 4": null,
       "The manifest lists tiles and areas": null,
+      "A tile's entry counts and masks its cells": null,
       "A layer with no polygons has no file": null,
       "The live manifest is checked, with its tile indexes": null,
       "The first run moves the cells onto the grid": null,
