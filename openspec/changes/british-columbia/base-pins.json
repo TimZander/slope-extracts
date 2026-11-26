@@ -3,11 +3,13 @@
   "pins": {
     "slope-extract": {
       "Elevation in an hrdem area comes from NRCan lidar only": null,
+      "The catalogue must answer before a cell is built empty": null,
       "An hrdem cell with no lidar project is built empty without reading elevation": null,
       "A cell has one elevation source": null,
       "The areas list": "7d26c625e77fc6b78e744a45b99da7a75bb7cba8bcd062e41d574c233f60a669",
       "Elevation comes from 3DEP lidar, then the 10 m DEM": "65aa0a43b113025aadb0d39edfbc88d7433928b57e468cb1b0da8b2f795405fc",
-      "The site carries its sources notice": "5f8344f48ff1c9f28850ed7c3aa478bee927789d7e43c806c219489828c0c442"
+      "The site carries its sources notice": "5f8344f48ff1c9f28850ed7c3aa478bee927789d7e43c806c219489828c0c442",
+      "A built cell's entry gives its build and its layers": "84afe00271791e51ebb5814f9d287e1ee3bfc57979f8262bf450d98b0110bf6b"
     }
   }
 }

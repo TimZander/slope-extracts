@@ -5,28 +5,45 @@
 A cell of an `hrdem` area SHALL read the HRDEM 1 m mosaic's DTM tiles that NRCan's STAC catalogue lists
 for its buffered frame, as a 2 m mosaic, and no other elevation: a pixel no lidar covers SHALL have none.
 Only DTM URLs under the mosaic's prefix SHALL be read. The entry SHALL record `dem10m` 0 and, as
-`projects`, the catalogue's lidar projects meeting the frame.
+`projects`, the catalogue's lidar projects meeting the frame whose ids are letters, digits, `_` and `-`.
 
 #### Scenario: A cell partly covered by lidar
 
-- **WHEN** lidar covers 30% of an `hrdem` cell's frame
-- **THEN** its entry's `sources` are `lidar` 0.3, `dem10m` 0 and `none` 0.7, and its polygons lie only where the lidar is
+- **WHEN** lidar of project `BC-Example_2019-1m` covers 30% of an `hrdem` cell's frame
+- **THEN** its entry's `sources` are `lidar` 0.3, `dem10m` 0 and `none` 0.7, its `projects` are
+  `["BC-Example_2019-1m"]`, and its polygons lie only where the lidar is
 
 #### Scenario: An untrusted URL in the catalogue's answer
 
 - **WHEN** the catalogue lists a mosaic tile whose DTM is on another host
 - **THEN** that tile is not read
 
+#### Scenario: A project id that isn't a plain name
+
+- **WHEN** the catalogue lists a project whose id holds `/` or a space
+- **THEN** it is not recorded, and doesn't count as a project meeting the frame
+
+### Requirement: The catalogue must answer before a cell is built empty
+
+An `hrdem` cell's build SHALL fail, keeping its previous files, when the catalogue lists no mosaic tile
+for its frame (the mosaic's tiles cover all of Canada, so an empty answer is a failure, not a place
+without lidar), or when a catalogue request fails.
+
+#### Scenario: An empty answer
+
+- **WHEN** the catalogue answers with no mosaic tile for an `hrdem` cell's frame
+- **THEN** the cell fails, keeps its previous files, and is planned again by the next run
+
 ### Requirement: An hrdem cell with no lidar project is built empty without reading elevation
 
-When the catalogue lists no lidar project meeting an `hrdem` cell's buffered frame, the cell SHALL be
-built with no raster read: its entry's `sources` SHALL be `lidar` 0, `dem10m` 0 and `none` 1, its
+When the catalogue lists mosaic tiles but no lidar project meeting an `hrdem` cell's buffered frame,
+the cell SHALL be built with no raster read: its entry's `sources` SHALL be `lidar` 0, `dem10m` 0 and `none` 1, its
 `projects` empty, and every layer empty, so it has no file.
 
 #### Scenario: A cell in the far north
 
-- **WHEN** no lidar project meets an `hrdem` cell's frame
-- **THEN** no mosaic tile is requested, and the cell's entry lists all three layers as `bytes` 0 with no tiers, and the site holds no file for it
+- **WHEN** the catalogue lists a mosaic tile but no lidar project meeting an `hrdem` cell's frame
+- **THEN** no mosaic GeoTIFF is read, and the cell's entry lists all three layers as `bytes` 0 with no tiers, and the site holds no file for it
 
 ### Requirement: A cell has one elevation source
 
@@ -85,7 +102,7 @@ each source's share of the frame and the lidar projects used.
 
 `LICENSE.txt` SHALL name USGS 3DEP (public domain) and NRCan's HRDEM, with the Open Government Licence –
 Canada's statement "Contains information licensed under the Open Government Licence – Canada." and a
-link to it, list every lidar project the built cells used, and link this repository. The manifest's
+link to it, list every lidar project the built cells list, in one list, and link this repository. The manifest's
 `attribution` SHALL credit both sources.
 
 #### Scenario: The pilot's notice
@@ -101,5 +118,22 @@ link to it, list every lidar project the built cells used, and link this reposit
 #### Scenario: A Canadian cell's credit
 
 - **WHEN** a built cell of an `hrdem` area used project `BC-Example_2019-1m`
-- **THEN** `LICENSE.txt` lists that project under the Open Government Licence – Canada's statement, and
-  `manifest.json`'s `attribution` names both USGS 3DEP and NRCan
+- **THEN** `LICENSE.txt` holds the Open Government Licence – Canada's statement and lists that project,
+  and `manifest.json`'s `attribution` names both USGS 3DEP and NRCan
+
+### Requirement: A built cell's entry gives its build and its layers
+
+A whole cell's entry in a tile index SHALL hold exactly `recipe`, `built` (YYYY-MM-DD), `sources` (the
+`lidar`, `dem10m` and `none` fractions), `projects` (the lidar projects meeting its frame, ids of letters, digits, `_` and `-`) and `layers`: for each of
+`t0-3m`, `t0-2m` and `t1-4`, its `bytes` and, per tier, its `polygons` and `points`. A split cell's
+entry SHALL hold the same with `quarters` in place of `layers`.
+
+#### Scenario: A whole cell's entry
+
+- **WHEN** cell `158_-425` is built whole from one lidar project
+- **THEN** its tile index's `cells` maps it to an object of exactly `recipe`, `built`, `sources`, `projects` and `layers`, `layers` holding all three layers
+
+#### Scenario: A Canadian project id
+
+- **WHEN** an `hrdem` cell's entry lists project `BC-Example_2019-1m`
+- **THEN** the deploy job and the live tile-index check accept it

@@ -34,15 +34,28 @@ Canada 2.0.
    (most of BC's 1,859 empty cells). A project that turns out to hold no pixel only costs the read.
 5. **Untrusted answers.** Only DTM URLs matching
    `https://canelevation-dem.s3.ca-central-1.amazonaws.com/hrdem-mosaic-1m/<i>_<j>-mosaic-1m-dtm.tif`
-   are read; project ids are kept only when they match a plain-name pattern, as 3DEP's are.
-6. **UTM zones 7 to 19.** NAD83 / UTM zones 7 to 11 exist (EPSG:26907–26911); the check widens.
-7. **No recipe change.** Colorado's cells are untouched; `RECIPE` stays.
+   are read. Project ids are kept only when they are letters, digits, `_` and `-` (NRCan's hold
+   hyphens: `BC-BC_East_Kootenay_UTM11_2015-1m`); one that isn't is dropped and doesn't open the gate.
+   The entry check (deploy job, live tile indexes) widens to the same pattern; the app's reader ignores
+   `projects`, so this is no contract change.
+6. **An empty answer is a failure, not "no lidar".** The mosaic's tiles cover all of Canada, so the
+   mosaic search runs for every `hrdem` cell and must list a tile; only then does an empty project list
+   mean no lidar. A 200 answer with nothing (an outage, an API change) fails the cell, which keeps its
+   files, instead of emptying a good cell for 300 days.
+7. **`projects` are the projects meeting the frame**, for both sources (as 3DEP's always were: every
+   tile touching the frame). A project the mosaic's order hides still appears in `LICENSE.txt`'s one
+   list; crediting a source that may not show is the safe side of the licence.
+8. **UTM zones 7 to 19.** NAD83 / UTM zones 7 to 11 exist (EPSG:26907–26911); the check widens.
+9. **No recipe change.** Colorado's cells are untouched; `RECIPE` stays.
 
 ## Open questions
 
 1. **BC's outline.** Assumption: 48 boxes, one per run of cells whose centre lies in a rough outline of
    the province, rows merged where equal (2,338 cells). They include slivers of Alberta (which has
-   HRDEM lidar), and of Yukon and Alaska (almost none: built empty).
+   HRDEM lidar), and of Yukon and Alaska (almost none: built empty). South of 49° N, around Victoria,
+   the border runs through cells shared with Washington (the San Juan Islands): as `hrdem` cells their
+   Washington land has no slope, and a later Washington area couldn't cover them (one source per
+   cell). Mixing sources in a cell is a later change if wanted.
 2. **The credit's wording.** Assumption: `attribution` reads "Elevation: USGS 3D Elevation Program
    (3DEP), public domain; NRCan HRDEM, contains information licensed under the Open Government Licence
    – Canada", and `LICENSE.txt` carries the licence's own statement and link.
@@ -50,9 +63,22 @@ Canada 2.0.
    empty layers); whether the app says "no lidar here" is the app's decision. Assumption: no change to
    the contract.
 
+## Notes
+
+- The spec's Purpose still names USGS 3DEP only; a delta can't change it. The archive of this change,
+  or a later edit through a change, updates it.
+
 ## Risks / Trade-offs
 
 - [The catalogue is down during a build] → the cell fails and keeps its previous files, as a TNM
   outage does; the next run tries again.
 - [NRCan adds lidar later] → an empty cell is rebuilt after 300 days like any other, and picks it up.
 - [The run time] → 2,338 cells at 48 a run is about 49 runs; empty cells without a project take seconds.
+
+## Review rounds
+
+- Spec review, round 1 (2026-11-26): 2 blockers, both fixed. NRCan's project ids hold hyphens, which
+  the 3DEP pattern and the deploy's entry check refuse (now letters, digits, `_` and `-`, with the
+  entry check widened). 5 should-fix, taken: one project list in `LICENSE.txt`; the gate counts only
+  kept ids; an empty catalogue answer fails the cell; the Washington cells by Victoria as part of open
+  question 1; `projects` are those meeting the frame. Consider items taken where they touch the spec.
