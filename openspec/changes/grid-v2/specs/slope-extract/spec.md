@@ -54,9 +54,9 @@ and `quartered`, mapping its built cells to entries of the form a v1 manifest gi
 
 A tile with a built cell SHALL have `tiles/<tile>/overview.json.gz`: gzip JSON with exactly `format`
 `slope-overview`, `version` 2, `tile`, and `tiers` holding only tier `4`, class `30`: the tier-4 polygons
-of the tile's built cells, in row then column order, a split cell's quarters by qrow then qcol, each
-file's polygons in order. The deploy job SHALL write it from the `t1-4` files it publishes, and fail
-before the deployment is created when it would be over a cell file's limits (20 MiB, 64 MiB of JSON).
+of the tile's built cells in the order of a region's overview. The deploy job SHALL write it from the
+`t1-4` files it publishes, and fail before the deployment is created when it would be over a cell
+file's limits (20 MiB, 64 MiB of JSON).
 
 #### Scenario: A tile's overview
 
