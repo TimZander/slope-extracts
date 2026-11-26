@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "A border cell is built for each region that covers it": null,
+      "A build job is never given the same cell twice": null,
+      "A run builds missing and stale cells, at most 48": "2b15281e400d1f17873ca36b9e5d2090159a4a2a90db3856549f2749453c8fde"
+    }
+  }
+}
