@@ -19,7 +19,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const { hash: blake3 } = require('blake3-wasm')
+let blake3 // loaded on first use, so a failed load can't come before the token's file is removed
 
 const API = 'https://api.cloudflare.com/client/v4'
 const SITE_URL = 'https://slope.timzander.com'
@@ -34,6 +34,7 @@ const TYPES = { gz: 'application/gzip', json: 'application/json', html: 'text/ht
 /** The Pages hash: the first 32 hex digits of BLAKE3 over the base64 text and the extension. */
 export function pagesHash (bytes, name) {
   const extension = path.posix.extname(name).substring(1)
+  blake3 ??= require('blake3-wasm').hash
   return blake3(Buffer.from(bytes).toString('base64') + extension).toString('hex').slice(0, 32)
 }
 
@@ -109,7 +110,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 /** A POST to Cloudflare's assets API with the JWT; a network error or 5xx is retried. Nothing of an
  *  answer but its status and error codes ever reaches an error message. */
-async function apiCall (api, jwt, route, body, retryDelayMs) {
+async function apiCall (api, jwt, route, body, retryDelayMs, timeoutMs) {
   for (let attempt = 1; ; attempt++) {
     let res
     try {
@@ -118,7 +119,7 @@ async function apiCall (api, jwt, route, body, retryDelayMs) {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt}` },
         body: JSON.stringify(body),
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS)
+        signal: AbortSignal.timeout(timeoutMs)
       })
     } catch (e) {
       if (attempt < ATTEMPTS) { await sleep(retryDelayMs * 2 ** attempt); continue }
@@ -143,42 +144,58 @@ async function apiCall (api, jwt, route, body, retryDelayMs) {
   }
 }
 
-/** A kept file read back from the live site: at most its manifest size, hashed before it is used. */
-async function readBack (siteUrl, item, retryDelayMs) {
+/** A kept file read back from the live site: at most its manifest size, uncompressed (as the Python
+ *  reader asks), hashed before it is used. A network error or 5xx, body included, is retried. */
+async function readBack (siteUrl, item, retryDelayMs, timeoutMs) {
   for (let attempt = 1; ; attempt++) {
-    let res
+    let data
     try {
-      res = await fetch(`${siteUrl}${item.path}`, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) })
+      data = await readOnce(siteUrl, item, timeoutMs)
     } catch (e) {
-      if (attempt < ATTEMPTS) { await sleep(retryDelayMs * 2 ** attempt); continue }
-      throw new Error(`${item.path} could not be read back (${e.name})`)
+      if (e.retry && attempt < ATTEMPTS) { await sleep(retryDelayMs * 2 ** attempt); continue }
+      throw e
     }
-    if (res.status >= 500 && attempt < ATTEMPTS) {
-      await res.body?.cancel()
-      await sleep(retryDelayMs * 2 ** attempt)
-      continue
-    }
-    if (res.status !== 200) {
-      await res.body?.cancel()
-      throw new Error(`${item.path} answered ${res.status} on the live site`)
-    }
-    const chunks = []
-    let size = 0
-    for await (const chunk of res.body) {
-      size += chunk.length
-      if (size > item.bytes) {
-        await res.body.cancel().catch(() => {})
-        throw new Error(`${item.path} on the live site is over its ${item.bytes} bytes`)
-      }
-      chunks.push(chunk)
-    }
-    const data = Buffer.concat(chunks)
     if (pagesHash(data, item.path) !== item.hash) throw new Error(`${item.path} changed on the live site: it doesn't hash to its hashes.json entry`)
     return data
   }
 }
 
-export async function runUpload ({ site, state, jwtFile, api = API, siteUrl = SITE_URL, log = console.log, retryDelayMs = 1000 }) {
+async function readOnce (siteUrl, item, timeoutMs) {
+  const retry = message => Object.assign(new Error(message), { retry: true })
+  let res
+  try {
+    res = await fetch(`${siteUrl}${item.path}`, {
+      headers: { 'accept-encoding': 'identity' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+  } catch (e) {
+    throw retry(`${item.path} could not be read back (${e.name})`)
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel()
+    if (res.status >= 500) throw retry(`${item.path} answered ${res.status} on the live site`)
+    throw new Error(`${item.path} answered ${res.status} on the live site`)
+  }
+  const chunks = []
+  let size = 0
+  try {
+    for await (const chunk of res.body) {
+      size += chunk.length
+      if (size > item.bytes) {
+        await res.body.cancel().catch(() => {})
+        throw Object.assign(new Error(`${item.path} on the live site is over its ${item.bytes} bytes`), { final: true })
+      }
+      chunks.push(chunk)
+    }
+  } catch (e) {
+    if (e.final) throw e
+    throw retry(`${item.path} broke off while being read back (${e.name})`)
+  }
+  return Buffer.concat(chunks)
+}
+
+export async function runUpload ({ site, state, jwtFile, api = API, siteUrl = SITE_URL, log = console.log, retryDelayMs = 1000, timeoutMs = TIMEOUT_MS }) {
   let jwt
   try {
     jwt = fs.readFileSync(jwtFile, 'utf8').trim()
@@ -188,7 +205,7 @@ export async function runUpload ({ site, state, jwtFile, api = API, siteUrl = SI
   const deployment = readJson(path.join(state, 'deployment.json'))
   const items = readJson(path.join(state, 'upload.json'))
   const hashes = [...new Set(Object.values(deployment))].sort()
-  const missing = await apiCall(api, jwt, '/pages/assets/check-missing', { hashes }, retryDelayMs)
+  const missing = await apiCall(api, jwt, '/pages/assets/check-missing', { hashes }, retryDelayMs, timeoutMs)
   if (!Array.isArray(missing)) throw new Error('check-missing answered no list')
   const lacking = new Set(missing)
   const todo = []
@@ -209,13 +226,13 @@ export async function runUpload ({ site, state, jwtFile, api = API, siteUrl = SI
   for (const b of buckets) {
     const payload = []
     for (const item of b.items) {
-      const data = item.local ? fs.readFileSync(path.join(site, item.path)) : await readBack(siteUrl, item, retryDelayMs)
+      const data = item.local ? fs.readFileSync(path.join(site, item.path)) : await readBack(siteUrl, item, retryDelayMs, timeoutMs)
       if (item.local && pagesHash(data, item.path) !== item.hash) throw new Error(`${item.path} changed since it was hashed`)
       payload.push({ key: item.hash, value: data.toString('base64'), metadata: { contentType: item.contentType }, base64: true })
     }
-    await apiCall(api, jwt, '/pages/assets/upload', payload, retryDelayMs)
+    await apiCall(api, jwt, '/pages/assets/upload', payload, retryDelayMs, timeoutMs)
   }
-  await apiCall(api, jwt, '/pages/assets/upsert-hashes', { hashes }, retryDelayMs)
+  await apiCall(api, jwt, '/pages/assets/upsert-hashes', { hashes }, retryDelayMs, timeoutMs)
   log(`Uploaded ${todo.length} file(s); Cloudflare already held ${hashes.length - todo.length} of the deployment's ${hashes.length}.`)
 }
 
@@ -227,6 +244,12 @@ function args (argv, names) {
     out[name] = argv[i + 1]
   }
   return names.every(n => n in out) ? out : null
+}
+
+/** The token's file named on the command line, removed whatever else happens to the run. */
+function removeJwtFile (argv) {
+  const i = argv.indexOf('--jwt-file')
+  if (argv[0] === 'upload' && i > 0 && argv[i + 1]) fs.rmSync(argv[i + 1], { force: true })
 }
 
 async function main (argv) {
@@ -259,7 +282,8 @@ function usage () {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then(code => { process.exitCode = code }, err => {
+  const argv = process.argv.slice(2)
+  main(argv).finally(() => removeJwtFile(argv)).then(code => { process.exitCode = code }, err => {
     // only our own messages: no answer body, no token
     console.error(`::error::${String(err.message).replace(/[^\x20-\x7e]/g, '?')}`)
     process.exitCode = 1

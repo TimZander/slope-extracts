@@ -285,3 +285,61 @@ test('the command line needs its arguments', () => {
   const r = spawnSync(process.execPath, [SCRIPT, 'upload'], { encoding: 'utf8' })
   assert.equal(r.status, 2)
 })
+
+// Requirement: The upload token stays out of the log (the token's file goes even when nothing uploads)
+test('the token file is removed when the arguments are wrong', () => {
+  const root = tmp()
+  const jwt = jwtFile(root)
+  const r = spawnSync(process.execPath, [SCRIPT, 'upload', '--jwt-file', jwt], { encoding: 'utf8' })
+  assert.equal(r.status, 2)
+  assert.equal(fs.existsSync(jwt), false)
+})
+
+// Requirement: Waits on Cloudflare are bounded ("A call that hangs")
+test('a call that hangs times out, three times, and fails the upload', async () => {
+  const f = fixture()
+  runHash({ site: f.site, state: f.state })
+  let calls = 0
+  const server = http.createServer(() => { calls++ }) // never answers
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const api = `http://127.0.0.1:${server.address().port}/client/v4`
+    await assert.rejects(runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api, siteUrl: api, log: () => {}, retryDelayMs: 1, timeoutMs: 50 }), /could not be reached/)
+    assert.equal(calls, 3)
+  } finally {
+    server.closeAllConnections()
+    server.close()
+  }
+})
+
+// Requirement: Waits on Cloudflare are bounded ("A hash no file has")
+test('a missing hash no file of the deployment has fails the upload', async () => {
+  const f = fixture()
+  runHash({ site: f.site, state: f.state })
+  const cf = await fakeCloudflare({ missing: ['e'.repeat(32)] })
+  try {
+    await assert.rejects(runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} }), /no file of this deployment/)
+    assert.equal(cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').length, 0)
+  } finally {
+    cf.server.close()
+  }
+})
+
+test('a re-read asks the live site for its bytes uncompressed', async () => {
+  const bytes = Buffer.from('kept bytes')
+  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const h = pagesHash(bytes, 't0-3m.json.gz')
+  const f = fixture({ kept: { [keptPath]: { hash: h, bytes: bytes.length } } })
+  runHash({ site: f.site, state: f.state })
+  const seen = []
+  const site = http.createServer((req, res) => { seen.push(req.headers['accept-encoding']); res.writeHead(200); res.end(bytes) })
+  await new Promise(resolve => site.listen(0, '127.0.0.1', resolve))
+  const cf = await fakeCloudflare({ missing: [h] })
+  try {
+    await runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: `http://127.0.0.1:${site.address().port}`, log: () => {} })
+    assert.deepEqual(seen, ['identity'])
+  } finally {
+    cf.server.close()
+    site.close()
+  }
+})

@@ -1468,3 +1468,16 @@ def test_hashes_from_another_deployment_fail_the_hash_step(live, tmp_path):
     _c, out2 = run(tmp_path, live, 'site2')
     r = node_hash(out2)
     assert r.returncode == 1 and 'another deployment' in r.stderr
+
+
+# Requirement: A deploy reads back only what it needs ("The first run after this change")
+def test_the_first_run_after_this_change_writes_hashes_for_both_cells(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out, hashes=False)  # a site deployed before this change: no hashes.json
+    artifact(tmp_path, 0, [OTHER])
+    _c, out2 = run(tmp_path, live, 'site2')
+    r = node_hash(out2)
+    assert r.returncode == 0, r.stderr
+    files = json.loads((out2 / 'hashes.json').read_text())['files']
+    assert {f'/colorado/{c}/{l}.json.gz' for c in (DILLON, OTHER) for l in site.LAYERS} <= set(files)

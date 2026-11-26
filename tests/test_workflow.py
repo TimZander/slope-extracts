@@ -66,6 +66,13 @@ def test_secrets_only_in_the_two_curl_steps():
         assert programs.count('curl') == 1, name
         assert set(re.findall(r'https://([^/"\s]+)', run)) == {'api.cloudflare.com'}, name
     assert 'wrangler' not in WORKFLOW.split('\njobs:\n', 1)[1]
+    # the project, and the deployment on branch main (production), as wrangler's flags were
+    token_run = steps['Get an upload token'].split('run: |\n', 1)[1]
+    assert '/accounts/%s/pages/projects/slope-extracts/upload-token"' in token_run
+    deploy_run = steps['Create the deployment'].split('run: |\n', 1)[1]
+    assert '/accounts/%s/pages/projects/slope-extracts/deployments"' in deploy_run
+    assert deploy_run.count('-F ') == 3 and '-F "branch=main"' in deploy_run
+    assert '-F "manifest=<_deploy/deployment.json"' in deploy_run and '-F "_headers=@_deploy/_headers;filename=_headers"' in deploy_run
 
 
 # Requirement: The Cloudflare token reaches two curl calls only ("Reading a token step")
@@ -112,6 +119,7 @@ def test_the_one_package_comes_from_the_lockfile_without_install_scripts():
     assert list(packages) == ['node_modules/blake3-wasm']
     assert packages['node_modules/blake3-wasm']['version'] == '2.1.5'
     assert packages['node_modules/blake3-wasm']['integrity'].startswith('sha512-')
+    assert not packages['node_modules/blake3-wasm'].get('hasInstallScript')
     install = deploy_steps()['Install the hashing package']
     assert 'npm ci --ignore-scripts --no-audit --no-fund' in install and 'secrets.' not in install
     assert 'npm install' not in WORKFLOW and 'npx' not in WORKFLOW
