@@ -98,3 +98,10 @@ Canada 2.0.
   the exact mosaic form (another host, the `-dsm.tif` and a `../` path are refused, each tested); the
   catalogue's next links must stay on its host, at most 20 pages, answers capped at 8 MB; only plain
   project ids are kept; the deploy job checks every cell file as before; the workflow is unchanged.
+- Conformance review, round 1 (2026-11-26): no hard fail; every gate broken on purpose was caught. 6
+  soft fails, taken: a projects probe over Vancouver (4 projects live) must answer before any cell is
+  built empty, once per job, so an empty projects answer can't empty BC's lidar cells for 300 days;
+  a cell no area covers fails its build instead of defaulting to 3DEP; the 20-page and 8 MiB limits are
+  in the requirement; tests now check that no polygon reaches the half without lidar and that a cell
+  whose only project id is refused is built empty. An all-empty entry through the deploy is the flat
+  cell's case, tested since grid-v2 (`test_a_flat_cells_layers_have_no_files`).

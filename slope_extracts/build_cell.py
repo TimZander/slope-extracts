@@ -61,6 +61,7 @@ def build(cell_id, out_dir, dem_paths=None, log=print, today=None, source='3dep'
             projects = sources.hrdem_projects(lb[1], lb[0], lb[3], lb[2])
             fallback = []
             if not projects:
+                sources.hrdem_probe()
                 log(f'{cell_id}: no NRCan lidar project meets the frame: built empty, nothing read')
                 return _write_empty(cell_id, out_dir, today)
         else:
@@ -241,7 +242,9 @@ def main(argv=None):
     for item in args.cells:
         c = item
         try:
-            build(c, args.out, args.dem, source=cell_source.get(c, '3dep'))
+            if c not in cell_source:
+                raise ValueError(f'no area covers cell {c}')
+            build(c, args.out, args.dem, source=cell_source[c])
         except Exception as e:  # one cell's failure leaves the others' files; named, then the run fails
             print(f'::error::cell {c} failed: {e}', file=sys.stderr)
             failed.append(c)

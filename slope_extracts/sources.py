@@ -136,6 +136,23 @@ def hrdem_tiles(south, west, north, east, post=None):
     return sorted(urls)
 
 
+# A place known to have NRCan lidar (Vancouver, one cell): before an empty projects answer may mean "no
+# lidar", the projects search must find something here, or the catalogue is answering wrong.
+PROBE_BOX = (49.25, -123.25, 49.5, -123.0)
+_PROBED = False
+
+
+def hrdem_probe(post=None):
+    """Fail unless the projects search finds a project over PROBE_BOX; once per process."""
+    global _PROBED
+    if _PROBED:
+        return
+    if not hrdem_projects(*PROBE_BOX, post=post):
+        raise RuntimeError('the NRCan catalogue lists no lidar project over Vancouver either: '
+                           'its projects search is answering wrong, so no cell is built empty')
+    _PROBED = True
+
+
 def hrdem_projects(south, west, north, east, post=None):
     """The lidar projects meeting a lat/lon box with a valid id, sorted; others are dropped."""
     feats = _search(HRDEM_PROJECTS, south, west, north, east, post or _post_json)
