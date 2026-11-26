@@ -1,5 +1,12 @@
 # Design: add-wyoming-utah-idaho
 
+**Paused (owner, 2026-11-26) until the deploy scales.** Each deploy reads the whole live site back and
+re-checks it, about 2.5 s per cell (deploy of run 45750906054: 4 min 7 s to assemble with about 100
+cells read back). Colorado's 144 built cells average 5.5 MB (at most 25.7 MB). At 2,048 cells that
+is about 85 minutes against the deploy job's 90, and 11 to 16 GB against the runner's 14 GB of disk.
+The owner chose to fix the deploy first, in its own change, then go on with this one. Spec review
+round 2 also asked for an estimate of each new region's overview against its 20 MiB cap.
+
 ## Context
 
 - See proposal.md for why. A region's coverage is every 0.25° cell its bounding box touches. The plan
@@ -81,3 +88,6 @@ fails the deploy, so the owner would also need to accept the drop (a separate ch
   cell id would refuse every border cell; now modified to "one region's cell"), 2 should-fix (the
   reader and a border cell's two copies, now open question 3; decisions 6 and 7 made open questions 1
   and 2), 1 consider (a job is otherwise filled to 3, now in the requirement).
+- Spec review, round 2 (2026-11-26): 0 blockers, 2 should-fix (the deploy's read-back time and disk at
+  2,048 cells, which paused the change; each new region's overview against its cap, still to do), 4
+  consider (not yet taken).
