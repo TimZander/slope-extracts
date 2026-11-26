@@ -113,3 +113,76 @@ def test_build_cell_main_names_a_failed_cell(tmp_path, capsys):
     rc = build_cell.main(['not-a-cell', '--out', str(tmp_path), '--dem', 'x.tif'])
     assert rc == 1
     assert json.loads((tmp_path / 'failed.json').read_text()) == ['not-a-cell']
+
+
+# --- an oversize layer (requirement: An oversize 2 m layer is left out of its cell) ------------
+
+def _pad_gzip(monkeypatch, layer, extra):
+    """Makes `layer`'s gzip file `extra` bytes larger than it would be (a stand-in for a huge cell)."""
+    real = cellfile.compress
+
+    def compress(raw):
+        data = real(raw)
+        return data + b'\0' * extra if f'"layer":"{layer}"'.encode() in raw else data
+    monkeypatch.setattr(cellfile, 'compress', compress)
+
+
+def _pad_json(monkeypatch, layer, extra):
+    """Makes `layer`'s JSON `extra` bytes longer (trailing whitespace: still valid JSON)."""
+    real = cellfile.json_bytes
+
+    def json_bytes(doc):
+        raw = real(doc)
+        return raw + b' ' * extra if doc['layer'] == layer else raw
+    monkeypatch.setattr(cellfile, 'json_bytes', json_bytes)
+
+
+LEFT_OUT = {'bytes': 0, 'tiers': {'0': {'polygons': 0, 'points': 0}}}
+
+
+def test_build_an_oversize_2m_layer_is_left_out(mini_cell, cone_dem, tmp_path, monkeypatch):
+    _pad_gzip(monkeypatch, 't0-2m', build_cell.MAX_FILE_BYTES)
+    logged = []
+    entry = build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=logged.append)
+    cdir = tmp_path / mini_cell
+    assert sorted(p.name for p in cdir.iterdir()) == ['entry.json', 't0-3m.json.gz', 't1-4.json.gz']
+    assert entry['layers']['t0-2m'] == LEFT_OUT
+    assert json.loads((cdir / 'entry.json').read_text())['layers']['t0-2m'] == LEFT_OUT
+    assert entry['layers']['t0-3m']['bytes'] > 0 and entry['layers']['t1-4']['bytes'] > 0
+    warnings = [m for m in logged if m.startswith('::warning::')]
+    assert len(warnings) == 1 and mini_cell in warnings[0] and 't0-2m' in warnings[0]
+
+
+def test_build_a_2m_layer_whose_json_is_too_large_is_left_out(mini_cell, cone_dem, tmp_path, monkeypatch):
+    monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
+    _pad_json(monkeypatch, 't0-2m', 2_000_001)
+    logged = []
+    entry = build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=logged.append)
+    assert not (tmp_path / mini_cell / 't0-2m.json.gz').exists()
+    assert entry['layers']['t0-2m'] == LEFT_OUT
+    assert any(m.startswith('::warning::') and 't0-2m' in m for m in logged)
+
+
+def test_build_an_oversize_3m_layer_fails_the_cell(mini_cell, cone_dem, tmp_path, monkeypatch, capsys):
+    _pad_gzip(monkeypatch, 't0-3m', build_cell.MAX_FILE_BYTES)
+    with pytest.raises(RuntimeError, match='t0-3m is .* over the .*-byte limit per file'):
+        build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=lambda *_: None)
+
+
+def test_build_a_zoomed_out_layer_whose_json_is_too_large_fails_and_leaves_no_folder(
+        mini_cell, cone_dem, tmp_path, monkeypatch, capsys):
+    # requirement: A failed cell keeps its previous files (t1-4 is written after t0-3m)
+    monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
+    _pad_json(monkeypatch, 't1-4', 2_000_001)
+    out = tmp_path / 'out'
+    rc = build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem])
+    assert rc == 1
+    assert sorted(p.name for p in out.iterdir()) == ['failed.json', 'jobs.txt']
+    assert json.loads((out / 'failed.json').read_text()) == [mini_cell]
+    assert 'cell 158_-425 failed' in capsys.readouterr().err
+
+
+def test_build_limits_are_the_deploy_limits():
+    from slope_extracts import publish
+    assert build_cell.MAX_FILE_BYTES == publish.MAX_FILE_BYTES == 20 * 1024 * 1024
+    assert build_cell.MAX_JSON_BYTES == publish.MAX_CELL_JSON == 64 * 1024 * 1024
