@@ -111,3 +111,7 @@ switch; so the reader's version 2 must be proven before this merges.
   an upload or the subprocess is checked. Tidy-up: cell, tile, area and region ids were matched with
   `^…$`, which lets a trailing newline through; now matched whole. Attack tests feed tampered tile and
   region ids, ids with more after them, a cell outside its tile, and a bad `PLAN_MANIFEST_VERSION`.
+- Conformance review, round 2 (2026-11-26): 1 hard fail, a test citing "A deployed site" that checked
+  version 1 paths (now a test of the whole list, and the Node fixture on grid paths); 2 soft fails, a
+  scenario behind its rule (every tile index is read) and the deploy's guard counting cells where
+  open question 4 meant refusing any left-out cell (now refused by name, even when more are built).

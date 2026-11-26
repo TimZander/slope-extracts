@@ -375,9 +375,10 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, areas=None, s
     cells = {c: e for c, e in (live['cells'] if live else {}).items() if c in covered}
     for cell, (entry, _p) in built.items():
         cells[cell] = site.manifest_entry(entry)
-    live_count = len(live['cells']) if live else 0
-    if len(cells) < live_count:
-        raise RuntimeError(f'the new site would hold {len(cells)} built cells, fewer than the live {live_count}')
+    dropped = sorted(set(live['cells']) - set(cells)) if live else []
+    if dropped:
+        raise RuntimeError(f'the new site would leave out {len(dropped)} built cells the live one holds, '
+                           f'such as {dropped[0]}: removing cells needs its own change')
     tiles = site.build_tiles(areas, cells)
     files = site.site_files(tiles)
     if len(files) > site.MAX_SITE_FILES:
