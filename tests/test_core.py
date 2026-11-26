@@ -1,5 +1,6 @@
 import gzip
 import json
+import os
 
 import numpy as np
 import pytest
@@ -334,3 +335,49 @@ def test_build_limits_are_the_deploy_limits():
     from slope_extracts import publish
     assert build_cell.MAX_FILE_BYTES == publish.MAX_FILE_BYTES == 20 * 1024 * 1024
     assert build_cell.MAX_JSON_BYTES == publish.MAX_CELL_JSON == 64 * 1024 * 1024
+
+
+# Requirement: A cell too large to publish whole is split into its four quarters ("A cell exactly at the limit")
+@pytest.mark.parametrize('extra, whole', [(0, True), (1, False)])
+def test_build_a_gzip_file_exactly_at_the_limit_stays_whole(mini_cell, cone_dem, tmp_path, monkeypatch, extra, whole):
+    real = cellfile.compress
+
+    def compress(raw):
+        data = real(raw)
+        if b'"layer":"t0-2m"' in raw and _whole(raw):
+            return data + b'\0' * (build_cell.MAX_FILE_BYTES + extra - len(data))
+        return data
+    monkeypatch.setattr(cellfile, 'compress', compress)
+    entry = build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=lambda *_: None)
+    assert ('layers' in entry) is whole
+    if whole:
+        assert (tmp_path / mini_cell / 't0-2m.json.gz').stat().st_size == build_cell.MAX_FILE_BYTES
+
+
+# Requirement: An oversize 2 m layer is left out of its cell ("A 3 m layer too large to publish")
+def test_build_a_3m_layer_too_large_whole_splits_the_cell(mini_cell, cone_dem, tmp_path, monkeypatch):
+    _pad_gzip(monkeypatch, 't0-3m', build_cell.MAX_FILE_BYTES, where=_whole)
+    out = tmp_path / 'out'
+    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem]) == 0
+    entry = json.loads((out / mini_cell / 'entry.json').read_text())
+    assert list(entry['quarters']) == QUARTERS
+    assert all((out / mini_cell / q / 't0-3m.json.gz').exists() for q in QUARTERS)
+
+
+# Requirement: A quarter holds its cell's polygons clipped to the quarter ("A quarter with no steep ground")
+def test_a_quarter_with_no_steep_ground_is_written_with_its_classes_empty(tmp_path):
+    cell = '158_-425'
+    s, w, _n, _e = grid.cell_bounds(cell)
+    y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
+    poly = [[(y, x), (y, x + 50), (y + 50, x + 50), (y + 50, x)]]  # in 316_-850 only
+    tiers = {'t0-3m': {0: {30: [poly], 35: [], 40: [], 45: [], 55: []}},
+             't0-2m': {0: {30: [poly], 35: [], 40: [], 45: [], 55: []}},
+             't1-4': {1: {35: [], 40: [], 45: [], 55: []}, 2: {35: [], 40: [], 45: []}, 3: {35: [], 40: [], 45: []},
+                      4: {30: [poly]}}}
+    os.makedirs(tmp_path / cell)
+    build_cell._write_quarters(cell, str(tmp_path / cell), tiers, log=lambda *_: None)
+    for layer in ('t0-3m', 't0-2m', 't1-4'):
+        doc = cellfile.loads((tmp_path / cell / '317_-849' / f'{layer}.json.gz').read_bytes())
+        assert set(doc['tiers']) == {str(t) for t in tiers[layer]}
+        assert all(polys == [] for c in doc['tiers'].values() for polys in c.values())
+        assert {t: set(c) for t, c in doc['tiers'].items()} == {str(t): {str(b) for b in c} for t, c in tiers[layer].items()}

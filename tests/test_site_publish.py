@@ -1159,3 +1159,27 @@ def test_the_plan_and_deploy_code_imports_no_third_party_package():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = subprocess.run([sys.executable, '-c', code], cwd=root, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == '[]'
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("A live manifest from before this change")
+def test_a_deploy_over_a_live_manifest_without_quartered(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    m = json.loads(live.files['manifest.json'])
+    del m['regions'][0]['quartered']
+    live.files['manifest.json'] = json.dumps(m).encode()
+    split_artifact(tmp_path, 0, split=[OTHER])
+    changed, out2 = run(tmp_path, live, 'site2')
+    assert changed is True
+    r = json.loads((out2 / 'manifest.json').read_text())['regions'][0]
+    assert list(r['cells']) == [DILLON] and list(r['quartered']) == [OTHER]
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("Quarters out of order")
+def test_a_live_quartered_entry_with_its_quarters_out_of_order_fails_the_plan():
+    m = split_manifest()
+    e = m['regions'][0]['quartered'][DILLON]
+    e['quarters'] = dict(reversed(list(e['quarters'].items())))
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch_body(m)
