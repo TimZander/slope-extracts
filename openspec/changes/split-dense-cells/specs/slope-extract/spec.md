@@ -62,7 +62,7 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 ### Requirement: The manifest lists quartered cells apart from whole ones
 
 Each region SHALL have `quartered` (possibly empty) beside `cells`, mapping each split cell to its
-`recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four quarters, each with exactly
+`recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four, qrow then qcol, each with exactly
 `layers`, counted and checked as a whole cell's are, the left-out marker's rules included. A
 `quartered` entry SHALL have no `layers`, and a `cells` entry no `quarters`. A cell SHALL be in at
 most one of `cells` and `quartered`. The manifest SHALL keep `version` 1.
@@ -88,6 +88,11 @@ most one of `cells` and `quartered`. The manifest SHALL keep `version` 1.
 
 - **WHEN** a build job's entry for a split cell lists three quarters
 - **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: Quarters out of order
+
+- **WHEN** the live manifest's `quartered` entry lists `316_-849` before `316_-850`
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
 
 #### Scenario: A live entry with both forms
 
