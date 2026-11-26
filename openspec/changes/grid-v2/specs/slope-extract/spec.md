@@ -3,7 +3,7 @@
 ### Requirement: The areas list
 
 The areas list SHALL be one file, `areas.json`, of at least one area, each with exactly `id` (lowercase
-letters, digits and single hyphens, unique), `name` (not blank) and `boxes`: a non-empty list of bounds,
+letters, digits and single hyphens, unique, not `cells` or `tiles`), `name` (not blank) and `boxes`: a list of bounds,
 each numeric `south` < `north` within ±90 and `west` < `east` within ±180. An area's coverage SHALL be
 every cell one of its boxes touches, each once, in row then column order. A list breaking a rule SHALL
 fail the plan job.
@@ -20,7 +20,7 @@ fail the plan job.
 
 #### Scenario: An invalid list
 
-- **WHEN** an area's box has `south` above `north`
+- **WHEN** an area's box has `south` above `north`, or an area's id is `tiles`
 - **THEN** the plan job fails and no cell is built
 
 ### Requirement: A cell is built and stored once, whatever covers it
@@ -31,7 +31,7 @@ indexed once, at its own path, however many areas cover it.
 #### Scenario: A border cell
 
 - **WHEN** areas `colorado` and `utah` both cover cell `152_-437`, and it isn't built
-- **THEN** the run plans it once, and the site holds one set of its files, under `cells/152_-437/`, and one index entry for it
+- **THEN** the run plans and builds it once, and the site holds its files under `cells/152_-437/`, listed once in its tile's index; its v1 copies, while v1 lasts, are the same bytes under `colorado/` and `utah/`
 
 ### Requirement: Cells are indexed by 2-degree tiles
 
@@ -55,7 +55,8 @@ and `quartered`, mapping its built cells to entries of the form a v1 manifest gi
 A tile with a built cell SHALL have `tiles/<tile>/overview.json.gz`: gzip JSON with exactly `format`
 `slope-overview`, `version` 2, `tile`, and `tiers` holding only tier `4`, class `30`: the tier-4 polygons
 of the tile's built cells, in row then column order, a split cell's quarters by qrow then qcol, each
-file's polygons in order. The deploy job SHALL write it from the `t1-4` files it publishes.
+file's polygons in order. The deploy job SHALL write it from the `t1-4` files it publishes, and fail
+before the deployment is created when it would be over a cell file's limits (20 MiB, 64 MiB of JSON).
 
 #### Scenario: A tile's overview
 
@@ -65,7 +66,7 @@ file's polygons in order. The deploy job SHALL write it from the `t1-4` files it
 ### Requirement: The index lists tiles and areas
 
 `index.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
-`layers`, `tiles`, mapping each tile with a covered cell to its `coverage` and `cells` counts, its
+`layers`, `tiles`, mapping each tile with a covered cell to its `coverage` and `cells` (whole and split) counts, its
 `index` bytes and, when it has one, its `overview` entry (`bytes`, `polygons`, `points`); and `areas`,
 each with `id`, `name`, `boxes` and `tiles`: the tiles holding cells it covers.
 
@@ -84,6 +85,34 @@ built cell's files at `<area>/<cell>/…` (the bytes of its `cells/` files) and 
 
 - **WHEN** a run publishes after this change
 - **THEN** `manifest.json` is still version 1 with region `colorado`, and `colorado/158_-425/t1-4.json.gz` holds the same bytes as `cells/158_-425/t1-4.json.gz`
+
+### Requirement: The live index is checked
+
+The plan and deploy jobs SHALL read `index.json` (at most 4 MiB) and each tile index it lists (at most 4
+MiB), and fail when any isn't of its form, a listed tile index answers other than 200, a tile index lists
+a cell outside its tile, or its counts differ from the index's. Where a rule names the live manifest, the
+live index and its tile indexes SHALL serve, or the v1 manifest when the site has no `index.json`.
+
+#### Scenario: A tile index missing
+
+- **WHEN** `index.json` lists tile `19_-54` and `tiles/19_-54/index.json` answers 404
+- **THEN** the plan job fails and nothing is built
+
+#### Scenario: A cell in the wrong tile
+
+- **WHEN** `tiles/19_-54/index.json` lists cell `150_-431`
+- **THEN** the plan job fails with "the live index is not valid"
+
+### Requirement: The first run moves the cells onto the grid
+
+When the live site has a v1 manifest and no `index.json`, the deploy job SHALL take every built cell
+the v1 manifest lists as kept, read back each of its files from its first area's v1 path, checked as a
+v1 file, and publish the same bytes at its `cells/` path and at every covering area's v1 path.
+
+#### Scenario: Colorado's cells move
+
+- **WHEN** the live site holds 350 built Colorado cells under `colorado/` and no `index.json`, and a run builds 48 more
+- **THEN** the deploy reads back the 350 cells' files from `colorado/…`, and the deployment holds all 398 at `cells/…` and at `colorado/…`, with an index listing all 398
 
 ## MODIFIED Requirements
 
@@ -120,7 +149,7 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 ### Requirement: A run builds missing and stale cells, at most 48
 
 The plan job SHALL read the live site's index and tile indexes and choose, the areas in list order and
-each area's coverage in order, each covered cell once that the index lists as built nowhere, with
+each area's coverage in order, each covered cell once that its tile's index lists in neither `cells` nor `quartered`, with
 another recipe number, as built more than 300 days ago, or whole with a layer left out, at most 48, in
 jobs of 3 cells. With none to build, no build or deploy job SHALL run.
 
@@ -174,7 +203,7 @@ manifest naming every file of the site: every built cell's files, each tile's in
 ### Requirement: The site sets its CORS and cache headers
 
 `_headers` SHALL send `Access-Control-Allow-Origin: *` and `X-Content-Type-Options: nosniff` on every path,
-and one `Cache-Control` per path: one day for cell files (`/cells/…`, and each area's v1 `/<area>/<cell>/…`),
+and one `Cache-Control` per path, by rules naming each area: one day for cell files (`/cells/…`, `/<area>/<cell>/…`),
 an hour for `LICENSE.txt` and overview files, five minutes for `manifest.json`, `index.json`,
 `hashes.json` and tile indexes. A missing path SHALL answer from `404.html`.
 
@@ -216,6 +245,30 @@ Each built whole cell SHALL map to its `recipe`, `built` date, `sources`, `proje
 
 - **WHEN** only four cells of Colorado are built, all whole
 - **THEN** the manifest lists all 464 cells in Colorado's coverage, those four in its cells, and an empty quartered
+
+### Requirement: The site lists its files' hashes
+
+Each deploy SHALL write `hashes.json`: JSON with exactly `format` `slope-hashes`, `version` 1, and
+`files` mapping every file of the deployment but itself and `_headers`, as `/<path>`, to its Pages
+hash: the first 32 lowercase hex digits of the BLAKE3 hash of the file's base64 text followed by its
+extension, the text after its name's last dot.
+
+#### Scenario: A file's hash
+
+- **WHEN** the site holds `a.json` with the two bytes `{}`
+- **THEN** `hashes.json` maps `/a.json` to `ec47da64e7da6749028b38bc647d8a22`
+
+#### Scenario: A cell file's hash
+
+- **WHEN** the site holds `a.json.gz` with the two bytes `{}`
+- **THEN** `hashes.json` maps `/a.json.gz` to `c4d46c65815aef2535f97005ed44d325`, hashed with extension `gz`
+
+#### Scenario: A deployed site
+
+- **WHEN** a run deploys a site of one cell of one area
+- **THEN** `hashes.json` lists that cell's three files under `cells/` and under the area's v1 path, its
+  tile's index and overview, the area's v1 overview, `index.json`, `manifest.json`, `404.html` and
+  `LICENSE.txt`, each with its hash, and nothing else
 
 ## REMOVED Requirements
 

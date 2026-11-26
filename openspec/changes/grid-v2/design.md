@@ -16,8 +16,8 @@ answered; the spec proceeds on the assumption each gives.
 
 ## Goals / Non-Goals
 
-**Goals:** each cell once; areas of any shape; no published file whose size grows with an area; the
-current reader keeps working until it moves.
+**Goals:** each cell once; areas of any shape; no tile file whose size grows with an area (the v1
+manifest and overviews still do while they last); the current reader keeps working until it moves.
 
 **Non-Goals:** British Columbia's elevation source; skipping files for empty layers; changing the cell
 format; removing the v1 manifest (a later change, once the reader reads the index).
@@ -27,16 +27,21 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
 1. **Cell ids, quarters and the recipe don't change**; only where files live and how they are listed.
 2. **`index.json`** is the version 2 manifest, beside the v1 `manifest.json`, so a reader that knows
    only v1 is untouched.
-3. **`_headers`** lists one rule per area for v1 paths (`/<area>/*`) and rules for `/cells/*` and
-   `/tiles/*`, so no path matches two rules: today's `/:region/:cell/*` would also match
-   `/cells/<cell>/…` and `/tiles/<tile>/index.json`.
+3. **`_headers`** names each area instead of today's `/:region/:cell/*`, which would also match
+   `/cells/<cell>/…` and `/tiles/<tile>/index.json`: `/cells/*` (a day), `/tiles/:tile/index.json`
+   (five minutes), `/tiles/:tile/overview.json.gz` (an hour), and per area `/<area>/:cell/*` (a day)
+   and `/<area>/overview.json.gz` (an hour). An area can't be called `cells` or `tiles`.
 4. **The plan reads `index.json`, then each listed tile's index** (a few hundred small reads at four
    states). With no `index.json`, it reads the v1 manifest's cells as built (open question 6).
 5. **Build jobs get plain cell ids** (`158_-425`, no region), so a job can't be given one cell twice
    under two names.
-6. **The deploy's read-back stays as ADR 0023 has it**, by path: on the first run, the `cells/` paths
-   are unlisted in `hashes.json`, so every built cell is read back and checked once (about 15 minutes
-   at 464 cells), then by hash.
+6. **The deploy's read-back stays as ADR 0023 has it**, by path. On the first run the `cells/` paths
+   aren't on the site yet, so every built cell is read back from its first area's v1 path, checked, and
+   published at both ("The first run moves the cells onto the grid"): about 15 minutes at 464 cells,
+   once; later runs take kept files by hash.
+8. **The live index replaces the live manifest** in every rule that reads the live site (validity, the
+   first-deploy switch, "fewer cells than the live one", the hashes tie), with the v1 manifest only when
+   there is no index ("The live index is checked").
 7. **The v1 copies are written from the same bytes** as the `cells/` files, and hashed once.
 
 ## Open Questions (for the owner)
@@ -61,6 +66,11 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
 7. **Empty layers.** Assumption: out of scope; every cell still writes its three files. Skipping files
    for layers with no polygons (plains, ocean) would cut the file count before large areas and is a
    contract change of its own.
+8. **Is a region's `only` list kept?** Assumption: dropped. It held the four-cell pilot and has been
+   unused since ADR 0010; an area of one small box does the same.
+9. **A v1 region from an area of several boxes** gets the boxes' outer edges as `bounds`, with a
+   coverage smaller than those bounds cover. Assumption: the reader uses `coverage`, not `bounds`, to
+   know which cells exist. If it relies on bounds, areas should be one box each while v1 lasts.
 
 ## Risks / Trade-offs
 
@@ -77,4 +87,9 @@ revert; the v1 manifest and files are still whole.
 
 ## Review rounds
 
-(Recorded as they happen.)
+- Spec review, round 1 (2026-11-26): 4 blockers (a border cell's v1 copies against "one set of files";
+  the `hashes.json` scenario's file list; the first run reading `cells/` paths that don't exist yet;
+  header rules that overlapped), 7 should-fix (reserved area ids, split cells in the counts, the live
+  index's checks and sizes, the tile overview's cap, which live file the old rules mean, the dropped
+  `only` list, v1 bounds from several boxes), 4 consider (wording taken; the failed-cell and file-count
+  scenarios left, their rules still hold). All blockers and should-fix taken.
