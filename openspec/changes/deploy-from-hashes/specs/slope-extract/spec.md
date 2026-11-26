@@ -2,14 +2,20 @@
 
 ### Requirement: The site lists its files' hashes
 
-The site SHALL hold `hashes.json`: JSON with exactly `format` `slope-hashes`, `version` 1, and `files`
-mapping every file of the deployment but itself and `_headers`, as `/<path>`, to its Pages hash: the
-first 32 hex digits of the BLAKE3 hash of the file's base64 text followed by its extension.
+Each deploy SHALL write `hashes.json`: JSON with exactly `format` `slope-hashes`, `version` 1, and
+`files` mapping every file of the deployment but itself and `_headers`, as `/<path>`, to its Pages
+hash: the first 32 lowercase hex digits of the BLAKE3 hash of the file's base64 text followed by its
+extension, the text after its name's last dot.
 
 #### Scenario: A file's hash
 
 - **WHEN** the site holds `a.json` with the two bytes `{}`
 - **THEN** `hashes.json` maps `/a.json` to `ec47da64e7da6749028b38bc647d8a22`
+
+#### Scenario: A cell file's hash
+
+- **WHEN** the site holds `a.json.gz` with the two bytes `{}`
+- **THEN** `hashes.json` maps `/a.json.gz` to `c4d46c65815aef2535f97005ed44d325`, hashed with extension `gz`
 
 #### Scenario: A deployed site
 
@@ -22,13 +28,14 @@ first 32 hex digits of the BLAKE3 hash of the file's base64 text followed by its
 The deploy job SHALL read back from the live site `hashes.json`, the kept cells' `t1-4` files (for the
 overviews) and each kept file `hashes.json` doesn't list, and deploy them from the bytes read; it SHALL
 take every other kept file's hash from `hashes.json` unread. With no live manifest it SHALL read no
-`hashes.json`; one answering 404 SHALL list nothing. Paths it lists that aren't kept are ignored.
+`hashes.json`; one answering 404 SHALL list nothing. A kept cell is one the new manifest lists and
+this run didn't build.
 
 #### Scenario: A run after a run
 
 - **WHEN** the live site holds one cell and its `hashes.json`, Cloudflare holds every kept hash, and a run builds another cell
-- **THEN** the deploy job requests `manifest.json`, `hashes.json` and the first cell's `t1-4` file
-  only, and the deployment names both cells' files
+- **THEN** the deploy job requests from the live site `manifest.json`, `hashes.json` and the first
+  cell's `t1-4` file only, and the deployment names both cells' files
 
 #### Scenario: The first run after this change
 
@@ -43,9 +50,10 @@ take every other kept file's hash from `hashes.json` unread. With no live manife
 
 ### Requirement: The live hashes belong to the live manifest
 
-The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is not of its form or
-answers other than 200 or 404, when its entry for `/manifest.json` is not the hash of the manifest the
-deploy job read, or when a file it reads back doesn't hash to the entry `hashes.json` gives it.
+The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is over 4 MiB, not its
+keys, format, version and `/<path>` → hash entries, or answers other than 200 or 404; when its
+`/manifest.json` entry isn't the read manifest's hash; or when a file read back hashes to another entry
+it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept paths with none.
 
 #### Scenario: Hashes from another deployment
 
@@ -66,18 +74,28 @@ deploy job read, or when a file it reads back doesn't hash to the entry `hashes.
 
 The deploy job SHALL ask Cloudflare which of the deployment's hashes it lacks, upload only those files,
 then confirm every hash of the deployment to Cloudflare. A lacking file in the run's folder SHALL be
-uploaded from it; any other SHALL be read back, a bucket at a time without writing it to disk, and
-uploaded only if it hashes to `hashes.json`'s entry, or the deploy SHALL fail with no deployment.
+uploaded from it; any other SHALL be read back, at most its manifest size, a bucket at a time without
+writing it to disk, and uploaded only if it hashes to its `hashes.json` entry; else the deploy fails.
 
 #### Scenario: Only new files
 
-- **WHEN** Cloudflare holds every kept file's hash
-- **THEN** the run uploads only the files it wrote and creates the deployment
+- **WHEN** Cloudflare holds every kept file's hash, and lacks two of the files this run wrote
+- **THEN** the run uploads exactly those two, confirms every hash of the deployment, and creates the deployment
 
 #### Scenario: A kept file Cloudflare no longer holds
 
 - **WHEN** Cloudflare lacks the hash of a kept cell's `t0-3m` file, and the live site serves that file unchanged
 - **THEN** the deploy job reads it back, uploads it, and creates the deployment
+
+#### Scenario: A kept file read back too large
+
+- **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with more bytes than the manifest gives it
+- **THEN** the deploy job fails without reading past that size, and no deployment is created
+
+#### Scenario: A re-read leaves no file
+
+- **WHEN** the deploy job reads back a kept file Cloudflare lacks and uploads it
+- **THEN** no file holding its bytes is left on the runner
 
 #### Scenario: A kept file changed on the live site
 
@@ -112,16 +130,21 @@ the repository.
 
 ### Requirement: The Cloudflare token reaches two curl calls only
 
-The token and account id SHALL be secrets of the Environment `pages-production`, which only the deploy
-job uses. Only two steps, after the assemble and hash steps, SHALL be given them: one that fetches an
-upload token for project `slope-extracts`, one that creates the deployment from files earlier steps
-wrote. Each SHALL give it to curl in a header file it removes on exit, never on a command line, and
-print no response. The plan and build jobs SHALL hold no secret.
+The token and account id SHALL be secrets of the Environment `pages-production`, used only by the
+deploy job, and given only to two steps after the assemble and hash steps: one fetching an upload
+token for project `slope-extracts`, one creating the deployment from files earlier steps wrote. Each
+SHALL write them with shell builtins into curl's header and config files, removed on exit, unset them
+before running any program, and print no response.
 
 #### Scenario: Reading the deploy job
 
 - **WHEN** the workflow file is read
 - **THEN** `secrets.` appears in exactly two steps of the deploy job, each calling only `api.cloudflare.com` with curl, both after the assemble and hash steps, and in no other job
+
+#### Scenario: Reading a token step
+
+- **WHEN** either token step is read
+- **THEN** the token reaches curl only through a header file and the account id only through a config file, both secrets are unset before curl runs, curl writes its answer to a file, and the step removes those files on exit
 
 ### Requirement: The upload token stays out of the log
 
@@ -260,12 +283,12 @@ file.
 
 ### Requirement: The site holds at most 19,000 files
 
-The deploy job SHALL fail before the deployment is created when the site would hold more than 19,000
-files, `hashes.json` counted.
+The deploy job SHALL fail before the deployment is created when its manifest would name more than
+19,000 files, `hashes.json` counted and `_headers`, which it doesn't name, not.
 
 #### Scenario: Too many files
 
-- **WHEN** the manifest would name 19,001 files
+- **WHEN** the deployment's manifest would name 19,001 files
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: Counting a split cell's files
@@ -275,8 +298,8 @@ files, `hashes.json` counted.
 
 #### Scenario: Counting the hashes file
 
-- **WHEN** the deployment would name 18,999 files besides `hashes.json`
-- **THEN** the site would hold 19,000 files, and the deploy goes ahead
+- **WHEN** the deployment's manifest would name 18,999 files besides `hashes.json`
+- **THEN** it names 19,000 files, and the deploy goes ahead
 
 ## REMOVED Requirements
 

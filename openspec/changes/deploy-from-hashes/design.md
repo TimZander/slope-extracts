@@ -39,8 +39,10 @@ without the `t1-4` files.
 3. **The Cloudflare token reaches only two curl calls**: one fetches the project's upload JWT, one
    creates the deployment. Our Node script holds only the short-lived, project-scoped JWT. Rejected:
    one Node script holding the account-wide token. The owner's condition: nothing logs either token.
-   - Both curl steps read the token from a header file (`-H @file`, mode 600, removed on exit) written
-     with the shell's `printf` builtin, so it is on no command line.
+   - Both curl steps write the token into a header file and the account id into the URL of a curl
+     config file (`-H @file`, `-K file`, mode 600, removed on exit) with the shell's `printf` builtin,
+     then `unset` both before running curl or anything else: no program's environment or command
+     line holds either. The JWT is parsed by a later program that never had the token.
    - curl runs with `-fsS` and `-o <file>`: no response body or header reaches the log, and an HTTP
      error prints only its status.
    - The JWT is masked with `::add-mask::` as soon as it is parsed, written to a mode-600 file under
@@ -75,6 +77,12 @@ without the `t1-4` files.
    a mismatch fails the run, and the next run tries again.
 6c. **Every hash of the deployment is confirmed** (`upsert-hashes`) after the upload, as wrangler does,
    which keeps kept assets fresh in Cloudflare's store.
+6d. **Waits on Cloudflare** (assumption): every API call and live-site read has a timeout (2 minutes;
+   5 for the deployment), and the upload step retries a call up to 3 times on a network error or a
+   5xx, as wrangler does. Anything else fails the run with nothing deployed, and the next scheduled run
+   tries again. The deployment call isn't retried: if it timed out after Cloudflare accepted it, that
+   deployment is complete and correct anyway.
+6e. **A kept cell** is one the new manifest lists that this run didn't build (failed cells included).
 7. **`t1-4` files are read back and checked as before**, because the overviews are built from them.
    Every other kept file is never read when its hash is listed.
 8. **Migration needs no step**: with no live `hashes.json` (a 404), every kept file is read back and
@@ -96,6 +104,10 @@ without the `t1-4` files.
    carry a Purpose, and the workflow forbids editing `openspec/specs/` by hand, so this change leaves it.
    Assumption: the owner decides how to correct it (a hand edit they make or allow, or leaving it as a
    known stale line); the requirements below state the two steps.
+4. **Does Cloudflare keep assets that were uploaded but never deployed?** Assumption: yes, for a while
+   (check-missing reports them held, which is how wrangler skips them on a retried deploy). So a run
+   that uploads part of a large re-upload and then fails lets the next run go on from there. If not,
+   a full re-upload after mass expiry must fit in one deploy job (90 minutes).
 
 ## Risks / Trade-offs
 
@@ -125,3 +137,8 @@ the site.
   premises, where read-back bytes go and how they're hashed, tying `hashes.json` to the manifest,
   streaming re-reads, content types, `upsert-hashes`, replacing the old tests; the stale Purpose is
   open question 3), 5 consider (all taken).
+- Spec review, round 2 (2026-11-26): 0 blockers, 9 should-fix (all taken: `hashes.json`'s form check is
+  structural; the extension is the text after the last dot, with a `.gz` vector; the file count names
+  the deployment's manifest; the secrets reach curl only through files and are unset first; scenarios
+  for the confirmation, streaming and the token steps; test tasks; a size bound on re-reads; waits and
+  retries), 6 consider (taken but K6, now open question 4). No round 3: no blocker.
