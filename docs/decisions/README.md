@@ -32,3 +32,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0024](0024-hashes-in-a-side-file.md) | The files' hashes live in a side file, `hashes.json`, not in `manifest.json` | accepted |
 | [0025](0025-the-token-reaches-two-curl-calls-only.md) | The Cloudflare token reaches only two curl calls; the upload token is masked and passed in a file | accepted |
 | [0026](0026-wrangler-replaced-by-blake3-wasm.md) | Wrangler is replaced by its hashing package, `blake3-wasm` 2.1.5 | accepted |
+| [0027](0027-the-purpose-edited-in-place.md) | The spec's Purpose is edited in place for the deploy credential's two calls | accepted |

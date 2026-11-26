@@ -104,10 +104,9 @@ without the `t1-4` files.
 2. **Is Cloudflare's undocumented upload API stable?** Assumption: it is the one wrangler 3 and 4 use,
    so it changes rarely. If it breaks, the deploy fails before creating a deployment and the live site
    stays as it was; the fix is to follow wrangler's change.
-3. **The spec's Purpose** still says "with its deploy credential confined to one step". A delta can't
-   carry a Purpose, and the workflow forbids editing `openspec/specs/` by hand, so this change leaves it.
-   Assumption: the owner decides how to correct it (a hand edit they make or allow, or leaving it as a
-   known stale line); the requirements below state the two steps.
+3. **The spec's Purpose** said "with its deploy credential confined to one step". A delta can't carry a
+   Purpose, and the workflow forbids editing `openspec/specs/` by hand. Answered by the owner
+   (2026-11-26, "Update the purpose"): edited in place in this PR to "two plain API calls" (ADR 0027).
 4. **Does Cloudflare keep assets that were uploaded but never deployed?** Assumption: yes, for a while
    (check-missing reports them held, which is how wrangler skips them on a retried deploy). So a run
    that uploads part of a large re-upload and then fails lets the next run go on from there. If not,
