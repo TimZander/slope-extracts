@@ -5,7 +5,8 @@ USGS 3D Elevation Program (3DEP) in the United States and Natural Resources Cana
 Canada, and published as a static site at <https://slope.timzander.com>.
 
 - **What it builds:** `openspec/specs/slope-extract` (the spec), `docs/decisions/` (why).
-- **How:** `.github/workflows/build.yml` runs every 3 hours and by hand. It builds the covered cells
+- **How:** `.github/workflows/build.yml` runs every 15 minutes, one run at a time, so runs follow one
+  another (and by hand). It reads the live site past its CDN cache, and builds the covered cells
   the site lacks or built with an older recipe, at most 48 per run, three per job:
   - `areas.json` lists named areas (Colorado, British Columbia), each with its elevation `source`
     (`3dep` or `hrdem`) and one or more boxes; the coverage is every 0.25° cell a box

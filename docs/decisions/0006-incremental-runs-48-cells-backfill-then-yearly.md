@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted; its schedule superseded by ADR 0035 (runs follow one another)
 date: 2026-11-23
 decision-makers: the owner (cadence: "each region will run once per year or so. dem doesn't change often"); Claude (batch size, the 300-day rule, the schedules)
 ---

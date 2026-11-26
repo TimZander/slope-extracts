@@ -23,6 +23,7 @@ import gzip
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import sys
@@ -48,6 +49,9 @@ def http_get(url, limit, timeout=120):
         def redirect_request(self, *a, **k):
             return None
     opener = urllib.request.build_opener(NoRedirect)
+    # A query string of its own, so the CDN's cache never answers ("The pipeline reads the live site
+    # past its edge cache"); the site serves the path's file whatever the query.
+    url = f"{url}{'&' if '?' in url else '?'}fresh={secrets.token_hex(8)}"
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity'})
     try:
         with opener.open(req, timeout=timeout) as r:

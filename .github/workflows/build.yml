@@ -28,7 +28,9 @@ name: build
 
 on:
   schedule:
-    - cron: "41 */3 * * *" # every 3 hours; a run with nothing to build ends after the plan job
+    # Every 15 minutes, runs one at a time (concurrency below): the newest run scheduled during a run
+    # starts when it ends, so runs follow one another; a run with nothing to build ends after the plan job.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:

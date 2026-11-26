@@ -14,6 +14,7 @@
 //
 // Only blake3-wasm, from deploy/package-lock.json, is imported; the rest is Node's own.
 import { spawnSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -178,7 +179,9 @@ async function readOnce (siteUrl, item, timeoutMs) {
   const retry = message => Object.assign(new Error(message), { retry: true })
   let res
   try {
-    res = await fetch(`${siteUrl}${item.from || item.path}`, {
+    // a query string of its own, so the CDN's cache never answers ("The pipeline reads the live site
+    // past its edge cache")
+    res = await fetch(`${siteUrl}${item.from || item.path}?fresh=${crypto.randomBytes(8).toString('hex')}`, {
       headers: { 'accept-encoding': 'identity' },
       redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs)

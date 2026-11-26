@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "Runs follow one another": null,
+      "The pipeline reads the live site past its edge cache": null,
+      "Runs wait until the owner turns building on": "1a4ac50a02f501a6df7c5f0d3681e0cc061fecc515ea29bc71eb517da380fb6d"
+    }
+  }
+}

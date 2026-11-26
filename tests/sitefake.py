@@ -32,7 +32,7 @@ class FakeSite:
         self.requests = []
 
     def get(self, url, limit):
-        path = url.split('slope.test/', 1)[1]
+        path = url.split('slope.test/', 1)[1].split('?', 1)[0]
         self.requests.append(path)
         if path not in self.files:
             return 404, b''
