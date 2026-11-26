@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "An oversize 2 m layer is left out of its cell": null,
+      "The manifest marks a left-out layer": null,
+      "A cell is three gzip JSON layer files": "2b346b022df65b2429ad36e20fb5e5965614ecf6411df126df98f610a675fb36",
+      "The deploy job accepts only well-formed cells": "edbb355f25ee9065f4970738b311b69aefc77e79b56cc47a85b48f45c9c42079",
+      "Files read back from the live site are checked": "8ca581c2d5c424c2445bddeb91bea3402e8a92ec3af6410ba12e2553431302ba"
+    }
+  }
+}
