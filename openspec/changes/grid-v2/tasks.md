@@ -18,4 +18,4 @@ The reader's version 2 change ships before this merges (ADR 0030).
 
 - [x] 3.1 ADRs for the owner's answers: areas as boxes (0028), 2° tiles (0029), switching at once (0030), no file for an empty layer (0031), the tile entries' masks and `indexBytes` (0032), the version 2 contract (0033)
 - [ ] 3.2 README (done); the paused `add-wyoming-utah-idaho` branch closed, its areas carried over — not done: the owner asked to wait on the other states; the branch stays until they are added as areas
-- [ ] 3.3 Security review and attack test (the deploy job's paths change)
+- [x] 3.3 Security review and attack test (the deploy job's paths change): no finding; ids now matched whole, so a trailing newline is refused

@@ -61,7 +61,7 @@ def _validate_box(b, where):
 def _validate_area(a):
     if not _is_obj(a) or set(a) != AREA_KEYS:
         raise ValueError(f'an area must have exactly id, name and boxes: {a!r}')
-    if not isinstance(a['id'], str) or not AREA_ID.match(a['id']):
+    if not isinstance(a['id'], str) or not AREA_ID.fullmatch(a['id']):
         raise ValueError(f'area id {a["id"]!r} is not valid')
     if not isinstance(a['name'], str) or not a['name'].strip():
         raise ValueError(f'area {a["id"]}: name is blank')
@@ -269,7 +269,7 @@ def validate_manifest(m):
     if not isinstance(m.get('regions'), list):
         raise ValueError('the manifest has no regions array')
     for r in m['regions']:
-        if not _is_obj(r) or not isinstance(r.get('id'), str) or not REGION_ID.match(r['id']):
+        if not _is_obj(r) or not isinstance(r.get('id'), str) or not REGION_ID.fullmatch(r['id']):
             raise ValueError('a manifest region has no valid id')
         if not isinstance(r.get('coverage'), list) or not _is_obj(r.get('cells')):
             raise ValueError(f'region {r["id"]}: coverage and cells are required')

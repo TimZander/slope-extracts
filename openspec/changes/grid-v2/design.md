@@ -106,3 +106,7 @@ switch; so the reader's version 2 must be proven before this merges.
   split-entry attacks); restored and seen to catch their mutations. 3 soft fails: test citations fixed;
   an area's `tiles` now checked (tile ids the manifest lists, in order); tile-index reads retried twice
   on a network error or 5xx, as decision 7 says.
+- Security review (2026-11-26): no finding. Every live-site and artifact value that reaches a path,
+  an upload or the subprocess is checked. Tidy-up: cell, tile, area and region ids were matched with
+  `^…$`, which lets a trailing newline through; now matched whole. Attack tests feed tampered tile and
+  region ids, ids with more after them, a cell outside its tile, and a bad `PLAN_MANIFEST_VERSION`.

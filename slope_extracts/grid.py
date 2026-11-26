@@ -14,7 +14,7 @@ CELL_ID = re.compile(r'^(0|-?[1-9]\d*)_(0|-?[1-9]\d*)$')
 
 
 def parse_cell(cell_id):
-    m = CELL_ID.match(cell_id)
+    m = CELL_ID.fullmatch(cell_id)
     if not m:
         raise ValueError(f'{cell_id!r} is not a cell id')
     row, col = int(m.group(1)), int(m.group(2))
@@ -85,7 +85,7 @@ def tile_of(cell_id):
 
 
 def parse_tile(tile_id):
-    m = CELL_ID.match(tile_id) if isinstance(tile_id, str) else None
+    m = CELL_ID.fullmatch(tile_id) if isinstance(tile_id, str) else None
     if not m:
         raise ValueError(f'{tile_id!r} is not a tile id')
     trow, tcol = int(m.group(1)), int(m.group(2))
