@@ -23,6 +23,8 @@ leave the cell empty, with no coarser fallback.
   Government Licence – Canada beside USGS 3DEP.
 - **British Columbia**: a `british-columbia` area of 48 boxes following the province's outline at the
   cell grid, 2,338 cells, after Colorado.
+- **Project ids** may hold `-` (NRCan's do); `projects` is defined, for both sources, as the lidar
+  projects meeting the cell's frame, and the entry check widens to match.
 - The cells' UTM frames accept NAD83 zones 7 to 19 (BC is zones 7 to 11).
 
 ## Impact

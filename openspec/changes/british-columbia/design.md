@@ -38,12 +38,15 @@ Canada 2.0.
    hyphens: `BC-BC_East_Kootenay_UTM11_2015-1m`); one that isn't is dropped and doesn't open the gate.
    The entry check (deploy job, live tile indexes) widens to the same pattern; the app's reader ignores
    `projects`, so this is no contract change.
-6. **An empty answer is a failure, not "no lidar".** The mosaic's tiles cover all of Canada, so the
+6. **An empty answer is a failure, not "no lidar".** The mosaic's tiles cover all of Canada (checked
+   2026-11-26: a tile for each of BC's 172 edge cells, the far north and the Alaska, Yukon and Victoria
+   edges included), so the
    mosaic search runs for every `hrdem` cell and must list a tile; only then does an empty project list
    mean no lidar. A 200 answer with nothing (an outage, an API change) fails the cell, which keeps its
    files, instead of emptying a good cell for 300 days.
 7. **`projects` are the projects meeting the frame**, for both sources (as 3DEP's always were: every
-   tile touching the frame). A project the mosaic's order hides still appears in `LICENSE.txt`'s one
+   tile touching the frame), from every page of the catalogue's answer (its `next` links, at most 20
+   pages). A project the mosaic's order hides still appears in `LICENSE.txt`'s one
    list; crediting a source that may not show is the safe side of the licence.
 8. **UTM zones 7 to 19.** NAD83 / UTM zones 7 to 11 exist (EPSG:26907–26911); the check widens.
 9. **No recipe change.** Colorado's cells are untouched; `RECIPE` stays.
@@ -82,3 +85,8 @@ Canada 2.0.
   entry check widened). 5 should-fix, taken: one project list in `LICENSE.txt`; the gate counts only
   kept ids; an empty catalogue answer fails the cell; the Washington cells by Victoria as part of open
   question 1; `projects` are those meeting the frame. Consider items taken where they touch the spec.
+- Spec review, round 2 (2026-11-26): no blocker; 6 should-fix, taken: the 3DEP requirement also says
+  "meeting" the frame; no trusted DTM URL fails the cell; the exact DTM URL pattern (so a `-dsm.tif` is
+  refused); ids of 1 to 100 characters, one rule for the build and the entry check; the mosaic's cover
+  of every edge cell measured; tests for an empty answer and a refused id. Paging is followed. Stopped
+  here: the round found no blocker.

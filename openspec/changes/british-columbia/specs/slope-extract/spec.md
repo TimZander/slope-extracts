@@ -4,8 +4,9 @@
 
 A cell of an `hrdem` area SHALL read the HRDEM 1 m mosaic's DTM tiles that NRCan's STAC catalogue lists
 for its buffered frame, as a 2 m mosaic, and no other elevation: a pixel no lidar covers SHALL have none.
-Only DTM URLs under the mosaic's prefix SHALL be read. The entry SHALL record `dem10m` 0 and, as
-`projects`, the catalogue's lidar projects meeting the frame whose ids are letters, digits, `_` and `-`.
+Only URLs `https://canelevation-dem.s3.ca-central-1.amazonaws.com/hrdem-mosaic-1m/<i>_<j>-mosaic-1m-dtm.tif`
+SHALL be read. The entry SHALL record `dem10m` 0 and, as `projects`, the lidar projects of every page of
+the catalogue's answer that meet the frame, ids of 1 to 100 letters, digits, `_` and `-`.
 
 #### Scenario: A cell partly covered by lidar
 
@@ -15,7 +16,7 @@ Only DTM URLs under the mosaic's prefix SHALL be read. The entry SHALL record `d
 
 #### Scenario: An untrusted URL in the catalogue's answer
 
-- **WHEN** the catalogue lists a mosaic tile whose DTM is on another host
+- **WHEN** the catalogue lists a mosaic tile whose DTM is on another host, or is its `-dsm.tif`
 - **THEN** that tile is not read
 
 #### Scenario: A project id that isn't a plain name
@@ -26,8 +27,8 @@ Only DTM URLs under the mosaic's prefix SHALL be read. The entry SHALL record `d
 ### Requirement: The catalogue must answer before a cell is built empty
 
 An `hrdem` cell's build SHALL fail, keeping its previous files, when the catalogue lists no mosaic tile
-for its frame (the mosaic's tiles cover all of Canada, so an empty answer is a failure, not a place
-without lidar), or when a catalogue request fails.
+with a trusted DTM URL for its frame (the mosaic's tiles cover all of Canada, so an empty answer is a
+failure, not a place without lidar), or when a catalogue request fails.
 
 #### Scenario: An empty answer
 
@@ -86,7 +87,7 @@ plan job.
 A cell of a `3dep` area SHALL read every 3DEP 1 m lidar tile the TNM Access API lists for its buffered frame, as a 2 m
 mosaic in which the newest publication wins where surveys overlap. Pixels no lidar covers SHALL take the
 1/3 arc-second DEM. Only URLs under the 3DEP staged-products prefix SHALL be read. The entry SHALL record
-each source's share of the frame and the lidar projects used.
+each source's share of the frame and the lidar projects meeting it.
 
 #### Scenario: An untrusted URL in the API's answer
 
@@ -124,7 +125,7 @@ link to it, list every lidar project the built cells list, in one list, and link
 ### Requirement: A built cell's entry gives its build and its layers
 
 A whole cell's entry in a tile index SHALL hold exactly `recipe`, `built` (YYYY-MM-DD), `sources` (the
-`lidar`, `dem10m` and `none` fractions), `projects` (the lidar projects meeting its frame, ids of letters, digits, `_` and `-`) and `layers`: for each of
+`lidar`, `dem10m` and `none` fractions), `projects` (the lidar projects meeting its frame, ids of 1 to 100 letters, digits, `_` and `-`) and `layers`: for each of
 `t0-3m`, `t0-2m` and `t1-4`, its `bytes` and, per tier, its `polygons` and `points`. A split cell's
 entry SHALL hold the same with `quarters` in place of `layers`.
 
