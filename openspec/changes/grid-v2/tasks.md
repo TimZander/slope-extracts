@@ -4,7 +4,7 @@ The owner answers the design's open questions before task 1.
 
 ## 1. Tests first
 
-- [ ] 1.1 Tests for the new and changed scenarios, seen to fail: areas and their coverage, one copy of a border cell, tiles and their indexes and overviews, `index.json`, the v1 copies, the plan from the index (and from a v1 manifest on the first run), headers
+- [ ] 1.1 Tests for the new and changed scenarios, seen to fail: areas and their coverage, one copy of a border cell, tiles and their indexes and overviews, `index.json`, the v1 copies, the plan from the index (and from a v1 manifest on the first run), the live index's checks, the plan and deploy reading the same kind, a cell's copies sharing its hash, the first run's move, the `hashes.json` list, headers
 
 ## 2. Code
 

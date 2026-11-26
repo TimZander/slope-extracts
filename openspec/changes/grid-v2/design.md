@@ -39,11 +39,14 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
    aren't on the site yet, so every built cell is read back from its first area's v1 path, checked, and
    published at both ("The first run moves the cells onto the grid"): about 15 minutes at 464 cells,
    once; later runs take kept files by hash.
-8. **The live index replaces the live manifest** in every rule that reads the live site (validity, the
-   first-deploy switch, "fewer cells than the live one", the hashes tie), with the v1 manifest only when
-   there is no index ("The live index is checked").
 7. **The v1 copies are written from the same bytes** as the `cells/` files, and hashed once.
-
+8. **The live index replaces the live manifest** in every rule that reads the live site ("Rules that
+   read the live manifest read the index"), with the v1 manifest only before the first run; the plan
+   and deploy must agree on which they read.
+9. **A cell's copies share its hash** ("A cell's copies share its hash"): an area that newly covers a
+   built cell gets its v1 copies by the hash of the `cells/` files, with nothing read or uploaded.
+10. **Shrinking an area** drops its cells from the index, which the "fewer cells" guard refuses; that
+    needs a change of its own, as dropping a region does today.
 ## Open Questions (for the owner)
 
 1. **What is an area?** Assumption: a list of boxes, drawn by hand (Idaho as three or four boxes
@@ -93,3 +96,8 @@ revert; the v1 manifest and files are still whole.
   index's checks and sizes, the tile overview's cap, which live file the old rules mean, the dropped
   `only` list, v1 bounds from several boxes), 4 consider (wording taken; the failed-cell and file-count
   scenarios left, their rules still hold). All blockers and should-fix taken.
+- Spec review, round 2 (2026-11-26): 1 blocker (a newly covering area's v1 copies would be read back and
+  404; now "A cell's copies share its hash"), 4 should-fix (which files the old rules read, the plan
+  and deploy reading different files, which v1 path the first run reads, cells no area covers any
+  more), 4 consider (the index's count keys renamed `covered` and `built`, wording, tasks, numbering).
+  All taken.

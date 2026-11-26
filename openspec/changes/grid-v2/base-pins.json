@@ -9,6 +9,8 @@
       "The index lists tiles and areas": null,
       "The v1 manifest stays until the app reads the index": null,
       "The live index is checked": null,
+      "Rules that read the live manifest read the index": null,
+      "A cell's copies share its hash": null,
       "The first run moves the cells onto the grid": null,
       "A cell is three gzip JSON layer files": "892ae3e511159e6090ffc01c02b4f9f8228757909fe8ee573cdc9921692cc978",
       "A quarter file names its cell and its quarter": "b25622364ddfa369df8d3d450f778e9c36d27ad8d3b678e69bd83c5bd84e6772",

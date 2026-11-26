@@ -66,14 +66,14 @@ file's limits (20 MiB, 64 MiB of JSON).
 ### Requirement: The index lists tiles and areas
 
 `index.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
-`layers`, `tiles`, mapping each tile with a covered cell to its `coverage` and `cells` (whole and split) counts, its
+`layers`, `tiles`, mapping each tile with a covered cell to its `covered` count and `built` count (whole and split), its
 `index` bytes and, when it has one, its `overview` entry (`bytes`, `polygons`, `points`); and `areas`,
 each with `id`, `name`, `boxes` and `tiles`: the tiles holding cells it covers.
 
 #### Scenario: Colorado's index
 
 - **WHEN** only Colorado is listed and 10 of its cells are built
-- **THEN** `index.json`'s `areas` holds Colorado with its box and its 12 tiles, and the counts of `cells` across `tiles` sum to 10
+- **THEN** `index.json`'s `areas` holds Colorado with its box and its 12 tiles, and the tiles' `built` counts sum to 10
 
 ### Requirement: The v1 manifest stays until the app reads the index
 
@@ -90,24 +90,63 @@ built cell's files at `<area>/<cell>/…` (the bytes of its `cells/` files) and 
 
 The plan and deploy jobs SHALL read `index.json` (at most 4 MiB) and each tile index it lists (at most 4
 MiB), and fail when any isn't of its form, a listed tile index answers other than 200, a tile index lists
-a cell outside its tile, or its counts differ from the index's. Where a rule names the live manifest, the
-live index and its tile indexes SHALL serve, or the v1 manifest when the site has no `index.json`.
+a cell outside its tile, or its counts differ from the index's. The deploy job SHALL fail when it finds
+an `index.json` and the plan job didn't, or the other way round.
 
 #### Scenario: A tile index missing
 
 - **WHEN** `index.json` lists tile `19_-54` and `tiles/19_-54/index.json` answers 404
 - **THEN** the plan job fails and nothing is built
 
+#### Scenario: The plan and deploy read different files
+
+- **WHEN** the plan job read `index.json`, and in the deploy job `index.json` answers 404 while `manifest.json` answers
+- **THEN** the deploy job fails, and no site is published from the v1 manifest
+
 #### Scenario: A cell in the wrong tile
 
 - **WHEN** `tiles/19_-54/index.json` lists cell `150_-431`
 - **THEN** the plan job fails with "the live index is not valid"
 
+### Requirement: Rules that read the live manifest read the index
+
+Once the site has `index.json`, the rules that read the live manifest SHALL read it and its tile
+indexes instead: the first-deploy switch reads `index.json`; the hashes tie checks `/index.json`'s and
+each tile index's entries against the files read; "fewer cells than the live one" counts each cell once.
+Before then they read `manifest.json`, as now.
+
+#### Scenario: A stale index
+
+- **WHEN** the live `hashes.json` was written with an older `index.json` than the live one
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A border cell counted once
+
+- **WHEN** the live index lists 400 cells, 16 of them covered by two areas, and a run builds 2 more
+- **THEN** the new index lists 402 cells and the deploy goes ahead
+
+#### Scenario: A cell no area covers any more
+
+- **WHEN** an area is removed from `areas.json` and the live index lists cells only it covered
+- **THEN** the new index would list fewer cells, so the deploy job fails and nothing is deployed
+
+### Requirement: A cell's copies share its hash
+
+A kept cell's file at a v1 path `hashes.json` doesn't list (an area that newly covers the cell) SHALL be
+deployed with the hash of the same file at its `cells/` path, unread, and the same for the other way
+round; it SHALL be read back only where neither path is listed.
+
+#### Scenario: An area newly covering a built cell
+
+- **WHEN** `utah` is added to `areas.json`, covering kept cell `152_-437`, which `hashes.json` lists only at `cells/152_-437/` and `colorado/152_-437/`
+- **THEN** the deployment names `utah/152_-437/t1-4.json.gz` with that file's hash, and the deploy job requests no `utah/` path
+
 ### Requirement: The first run moves the cells onto the grid
 
 When the live site has a v1 manifest and no `index.json`, the deploy job SHALL take every built cell
-the v1 manifest lists as kept, read back each of its files from its first area's v1 path, checked as a
-v1 file, and publish the same bytes at its `cells/` path and at every covering area's v1 path.
+the v1 manifest lists as kept, read back each of its files from the v1 path of the first region that
+manifest lists it in, checked as a v1 file, and publish the bytes at its `cells/` path and every
+covering area's v1 path.
 
 #### Scenario: Colorado's cells move
 
@@ -149,8 +188,8 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 ### Requirement: A run builds missing and stale cells, at most 48
 
 The plan job SHALL read the live site's index and tile indexes and choose, the areas in list order and
-each area's coverage in order, each covered cell once that its tile's index lists in neither `cells` nor `quartered`, with
-another recipe number, as built more than 300 days ago, or whole with a layer left out, at most 48, in
+each area's coverage in order, each covered cell once that its tile's index doesn't list, lists with
+another recipe number, lists as built more than 300 days ago, or lists whole with a layer left out, at most 48, in
 jobs of 3 cells. With none to build, no build or deploy job SHALL run.
 
 #### Scenario: A stale cell
