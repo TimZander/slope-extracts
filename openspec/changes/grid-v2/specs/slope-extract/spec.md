@@ -5,7 +5,8 @@
 The areas list SHALL be one file, `areas.json`, of at least one area, each with exactly `id` (lowercase
 letters, digits and single hyphens, unique), `name` (not blank) and `boxes`: a non-empty list of bounds,
 each numeric `south` < `north` within ±90 and `west` < `east` within ±180. An area's coverage SHALL be
-every cell one of its boxes touches, each once, in row then column order. A list breaking a rule SHALL
+every cell one of its boxes overlaps (an edge on a cell line overlaps no cell beyond), each once, in row
+then column order. A list breaking a rule SHALL
 fail the plan job.
 
 #### Scenario: Colorado's coverage
@@ -116,7 +117,7 @@ column order). The boxes describe an area; whether a cell exists is the tiles' t
 
 A tile's entry SHALL hold exactly `covered` and `built` (counts of cells, a split cell once),
 `coveredMask` and `builtMask`, `indexBytes` (its index's size) and, when it has a built cell, `overview`
-(`bytes`, `polygons`, `points`). A mask is 64 bits, bit (row − 8 × trow) × 8 + (col − 8 × tcol) set for
+(`bytes`, and `polygons` and `points` counted as a cell tier's). A mask is 64 bits, bit (row − 8 × trow) × 8 + (col − 8 × tcol) set for
 each such cell, a split cell one bit, written as 16 lowercase hex digits, bit 0 last.
 
 #### Scenario: One built cell's mask
@@ -138,8 +139,8 @@ each such cell, a split cell one bit, written as 16 lowercase hex digits, bit 0 
 
 A layer, a whole cell's or a quarter's, whose tiers hold no polygon SHALL be published as no file, its
 entry `bytes` 0 and `tiers` `{}`, and the deploy job SHALL request none. A layer file is never 0 bytes, so
-a reader knows it is empty without requesting it. This is apart from the left-out marker, whose `tiers`
-count tier `0`.
+a reader knows it is empty without requesting it; an entry giving a layer with no polygon more bytes
+SHALL be invalid. This is apart from the left-out marker, whose `tiers` count tier `0`.
 
 #### Scenario: A flat cell
 
@@ -149,6 +150,11 @@ count tier `0`.
 #### Scenario: An empty layer's file is there anyway
 
 - **WHEN** a build job's entry gives `t1-4` `bytes` 0 and `tiers` `{}`, and its folder holds `t1-4.json.gz`
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A file with no polygons
+
+- **WHEN** a build job's entry gives `t0-3m` 500 bytes and tier `0` 0 polygons, with its file
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: An empty layer with counts
@@ -182,10 +188,11 @@ version than the plan job did.
 
 ### Requirement: A version 1 manifest still deploys
 
-While the live manifest is version 1, a run SHALL deploy even when it builds no cell, so the site moves
-to the grid at the first run after the change. The version 1 manifest SHALL be read as it was: `format`
-`slope-extract`, `version` 1, and regions each with an `id`, `coverage`, `cells` and, optionally,
-`quartered`, whose entries take the form and checks of a tile index's.
+While the live manifest is version 1, a run SHALL deploy even when it builds no cell, or all its cells
+fail, so the site moves to the grid at the first run after the change. The version 1 manifest SHALL be read as it was: `format`
+`slope-extract`, `version` 1, and regions each with at least an `id`, `coverage`, `cells` and,
+optionally, `quartered` (other keys ignored), whose entries take a tile index's form and checks; a cell
+listed by two regions takes the first one's entry.
 
 #### Scenario: Nothing to build on the first run
 
@@ -263,7 +270,7 @@ The plan job SHALL read the live manifest and tile indexes and choose, the areas
 area's coverage in order, each covered cell once that its tile's `cells` and `quartered` don't list, lists with another recipe
 number, lists as built more than 300 days ago, or lists whole with `t0-2m` left out (not empty), at most
 48, in jobs of 3 cells. With none to
-build, no build or deploy job SHALL run.
+build, no build job SHALL run, nor a deploy job unless the live manifest is version 1.
 
 #### Scenario: A stale cell
 
@@ -304,7 +311,8 @@ build, no build or deploy job SHALL run.
 
 The deploy job SHALL create a deployment of Pages project `slope-extracts` on branch `main` from a
 manifest naming every file of the site: every built cell's files, each tile's index and overview, the
-new manifest, `hashes.json`, `404.html` and `LICENSE.txt`, with `_headers` beside it. A run that built no cell SHALL deploy nothing.
+new manifest, `hashes.json`, `404.html` and `LICENSE.txt`, with `_headers` beside it. A run that built no cell SHALL deploy
+nothing, unless the live manifest is version 1.
 
 #### Scenario: A second run
 
@@ -640,7 +648,7 @@ checks. The deploy job SHALL fail before the deployment is created otherwise, or
 
 The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is over 4 MiB, not its
 keys, format, version and `/<path>` → hash entries, or answers other than 200 or 404; when its
-`/manifest.json` entry isn't the read manifest's hash; or when a file read back hashes to another entry
+`/manifest.json` entry, or a tile index's, isn't the read file's hash; or when a file read back hashes to another entry
 it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept paths with none, but
 on the first run on the grid, where a `cells/` path takes its v1 path's entry.
 
@@ -746,6 +754,31 @@ entry; else the deploy fails.
 
 - **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with other bytes
 - **THEN** the deploy job fails and no deployment is created
+
+### Requirement: A cell too large to publish whole is split into its four quarters
+
+When any of a cell's three layer files would be over 20 MiB of gzip or 64 MiB of JSON, the build job
+SHALL write the cell, all three layers, as its four 0.125° quarters instead, log a GitHub `::warning::`
+annotation naming the cell, and write no whole-cell layer file. A quarter's id SHALL be `<qrow>_<qcol>`
+with qrow = floor(latitude × 8) and qcol = floor(longitude × 8). A cell under both limits SHALL be
+written whole, as before.
+
+#### Scenario: A 2 m layer too large to publish whole
+
+- **WHEN** cell `158_-425`'s `t0-2m` file would be 24 MB of gzip and its other two layers 5 MB each
+- **THEN** its folder holds `entry.json` and the folders `316_-850`, `316_-849`, `317_-850` and
+  `317_-849`, each with its non-empty layers' files (here `t0-3m.json.gz`, `t0-2m.json.gz` and `t1-4.json.gz`), holds no whole-cell layer
+  file, and the job logs a warning naming `158_-425`
+
+#### Scenario: A zoomed-out layer's JSON too large to publish whole
+
+- **WHEN** a cell's `t1-4` file would be 15 MB of gzip unpacking to 70 MB of JSON
+- **THEN** the cell is written as its four quarters, as above
+
+#### Scenario: A cell exactly at the limit
+
+- **WHEN** a cell's largest layer file would be exactly 20,971,520 bytes of gzip and 67,108,864 bytes of JSON
+- **THEN** the cell is written whole, as three layer files
 
 ## REMOVED Requirements
 

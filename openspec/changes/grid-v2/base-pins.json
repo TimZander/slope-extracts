@@ -32,6 +32,7 @@
       "A failed cell keeps its previous files": "cc3d238296430660a0a9a707619b01d1e923041792d19572f808c3c52e8e77fa",
       "The site holds at most 19,000 files": "eb3ecec2b1a3c94a3d4cde1e784a599807730fba90c6542b5d1cfe2c52ec480a",
       "A deploy uploads only the files Cloudflare lacks": "a1ae94752b79dcd3c344f6012891992e1d7026e7c1c9312844341bc231c59c87",
+      "A cell too large to publish whole is split into its four quarters": "312f989d0c96ece3fc769731f0e5674aec249c86e8678d3cde45a8751c35710b",
       "The regions list": "140c34c4a0851ec89be0b5075b4cf9a5e8cd869c5cf61bde55e074ffe9a85054",
       "The manifest lists each region's coverage and built cells": "f8c84b1524cd9d0a00490148a8b60dc81e3cce7535bbedff17c09a5ae2ad317f",
       "Each region has an overview of its built cells' tier 4": "9751b6f37a3de13076a23f4992b0f3dd19fe0972cff14329346807ec67ce9349",

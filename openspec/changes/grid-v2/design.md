@@ -91,3 +91,9 @@ switch; so the reader's version 2 must be proven before this merges.
   builds what a tile's `cells` and `quartered` don't list; a run deploys while the manifest is version
   1; the version 1 manifest's form kept; a re-read's size from its entry), 7 consider (3 taken; scenario
   names of modified requirements kept, as the archive requires).
+- Spec review, round 6 (2026-11-26, the app having confirmed the contract): 2 blockers (two rules still
+  forbade the version 1 deploy; no task for its `build.yml` part), 3 should-fix (a version 1 run deploys
+  even when all its cells fail; the tile indexes named in the hash tie; a file with no polygons is
+  invalid), 5 consider (taken: overview counts as a cell tier's, version 1's other keys ignored and a
+  cell listed twice taking the first entry, a box edge on a cell line, a flat quarter in the split
+  scenario).

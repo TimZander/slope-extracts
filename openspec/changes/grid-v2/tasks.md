@@ -11,7 +11,7 @@ The reader's version 2 change ships before this merges (ADR 0030).
 - [ ] 2.1 `areas.json` (Colorado as one box) and its checks, replacing `regions.json`
 - [ ] 2.2 `grid.py`: a cell's tile; `site.py`: coverage as the union of areas, the plan, the manifest, tile indexes, empty layers, `_headers`
 - [ ] 2.3 `publish.py` and `overview.py`: cells at `cells/`, tile overviews, the first run's move, the live manifest's and tile indexes' checks
-- [ ] 2.4 `build_cell.py`: empty layers write no file; the deploy's artifact check refuses an empty layer's file; `build.yml`: plain cell ids in job lists, the plan job's limit at 30 minutes
+- [ ] 2.4 `build_cell.py`: empty layers write no file; the deploy's artifact check refuses an empty layer's file; `build.yml`: plain cell ids in job lists, the plan job's limit at 30 minutes, the plan's output of the live manifest's version, the deploy job's condition (deploy while version 1, even with nothing built or all failed) and its check that it read the plan's version
 - [ ] 2.5 `deploy/pages.mjs`: the hash tie on the manifest and each tile index ("The live hashes belong to the live manifest")
 
 ## 3. Records
