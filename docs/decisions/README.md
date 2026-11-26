@@ -40,3 +40,5 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0032](0032-tile-entries-carry-cell-masks.md) | A tile's manifest entry carries cell masks; the index's size is `indexBytes` | proposed |
 | [0033](0033-the-version-2-contract.md) | The version 2 contract: `manifest.json` version 2, `slope-tile` indexes, `slope-overview` version 2 | proposed |
 | [0034](0034-check-the-live-site-once-deployed.md) | The deploy job checks the live site once deployed; a rollback stays manual | proposed |
+| [0036](0036-no-lidar-no-data-in-canada.md) | Where Canada has no lidar, a cell is left empty: no 30 m fill | accepted |
+| [0037](0037-an-area-names-its-elevation-source.md) | An area names its elevation source; hrdem cells read NRCan's 1 m mosaic, gated by its catalogue | accepted |

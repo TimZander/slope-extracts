@@ -32,10 +32,15 @@ OPTIONAL_LAYER = 't0-2m'
 LEFT_OUT_TIERS = {'0': {'polygons': 0, 'points': 0}}
 EMPTY_TIERS = {}
 MAX_SITE_FILES = 19000
-ATTRIBUTION = 'Elevation: USGS 3D Elevation Program (3DEP), public domain'
+ATTRIBUTION = ('Elevation: USGS 3D Elevation Program (3DEP), public domain; NRCan HRDEM, contains information '
+               'licensed under the Open Government Licence – Canada')
+OGL_CANADA = 'https://open.canada.ca/en/open-government-licence-canada'
 REPOSITORY_URL = 'https://github.com/TimZander/slope-extracts'
 BOUND_KEYS = ('south', 'west', 'north', 'east')
-AREA_KEYS = {'id', 'name', 'boxes'}
+AREA_KEYS = {'id', 'name', 'source', 'boxes'}
+SOURCES = ('3dep', 'hrdem')
+# A lidar project's id: 3DEP's (letters, digits, _) and NRCan's (with -).
+PROJECT_ID = re.compile(r'[A-Za-z0-9_-]{1,100}')
 DATE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 MASK = re.compile(r'^[0-9a-f]{16}$')
 TILE_ENTRY_KEYS = ('covered', 'built', 'coveredMask', 'builtMask', 'indexBytes')
@@ -58,9 +63,11 @@ def _validate_box(b, where):
         raise ValueError(f'{where}: a box is out of order or range')
 
 
-def _validate_area(a):
-    if not _is_obj(a) or set(a) != AREA_KEYS:
-        raise ValueError(f'an area must have exactly id, name and boxes: {a!r}')
+def _validate_area(a, keys=AREA_KEYS):
+    if not _is_obj(a) or set(a) != keys:
+        raise ValueError(f'an area must have exactly {", ".join(sorted(keys))}: {a!r}')
+    if 'source' in keys and a['source'] not in SOURCES:
+        raise ValueError(f'area {a.get("id")!r}: source must be one of {", ".join(SOURCES)}')
     if not isinstance(a['id'], str) or not AREA_ID.fullmatch(a['id']):
         raise ValueError(f'area id {a["id"]!r} is not valid')
     if not isinstance(a['name'], str) or not a['name'].strip():
@@ -80,7 +87,19 @@ def validate_areas(areas):
         if a['id'] in seen:
             raise ValueError(f'area id {a["id"]} is listed twice')
         seen.add(a['id'])
+    cell_sources(areas)
     return areas
+
+
+def cell_sources(areas):
+    """{cell: source} of every covered cell ("A cell has one elevation source"): a cell that areas of two
+    sources cover is refused."""
+    out = {}
+    for a in areas:
+        for c in area_coverage(a):
+            if out.setdefault(c, a['source']) != a['source']:
+                raise ValueError(f'cell {c} is covered by areas of two sources ({out[c]} and {a["source"]})')
+    return out
 
 
 def load_areas(path='areas.json'):
@@ -193,8 +212,8 @@ def validate_entry(e, cell_id=None, key=None, split=None, strict=True):
     src = e.get('sources')
     if not _is_obj(src) or set(src) != {'lidar', 'dem10m', 'none'} or not all(type(v) in (int, float) and 0 <= v <= 1 for v in src.values()):
         raise ValueError('sources must be the lidar, dem10m and none fractions')
-    if not isinstance(e.get('projects'), list) or not all(isinstance(p, str) and re.fullmatch(r'[A-Za-z0-9_]{1,100}', p) for p in e['projects']):
-        raise ValueError('projects must be a list of 3DEP project names')
+    if not isinstance(e.get('projects'), list) or not all(isinstance(p, str) and PROJECT_ID.fullmatch(p) for p in e['projects']):
+        raise ValueError('projects must be a list of lidar project ids (1 to 100 letters, digits, _ and -)')
     has_layers, has_quarters = 'layers' in e, 'quarters' in e
     if has_layers == has_quarters:
         raise ValueError('an entry must have exactly one of layers (a whole cell) and quarters (a split cell)')
@@ -371,7 +390,7 @@ def validate_manifest_v2(m):
     for a in m['areas']:
         if not _is_obj(a) or set(a) != {'id', 'name', 'boxes', 'tiles'}:
             raise ValueError('a manifest area has exactly id, name, boxes and tiles')
-        _validate_area({k: a[k] for k in ('id', 'name', 'boxes')})
+        _validate_area({k: a[k] for k in ('id', 'name', 'boxes')}, keys={'id', 'name', 'boxes'})
         if not isinstance(a['tiles'], list) or not all(isinstance(t, str) for t in a['tiles']):
             raise ValueError(f'area {a["id"]}: tiles must be a list of tile ids')
         for t in a['tiles']:
@@ -484,9 +503,14 @@ def license_text(cells):
     lines = '\n'.join(f'- {p}' for p in projects) or '- (none yet)'
     return f"""Slope-angle cells: sources and licence
 
-The elevation data behind these files is from the USGS 3D Elevation Program (3DEP): 1 m lidar
-DEMs and, where lidar has a gap, the 1/3 arc-second seamless DEM.
-USGS data is in the public domain. Please credit: "U.S. Geological Survey, 3D Elevation Program".
+The elevation data behind these files is from two sources:
+
+- In the United States, the USGS 3D Elevation Program (3DEP): 1 m lidar DEMs and, where lidar has a
+  gap, the 1/3 arc-second seamless DEM. USGS data is in the public domain. Please credit:
+  "U.S. Geological Survey, 3D Elevation Program".
+- In Canada, Natural Resources Canada's High Resolution Digital Elevation Model (HRDEM), lidar only.
+  Contains information licensed under the Open Government Licence – Canada.
+  {OGL_CANADA}
 
 Lidar projects used:
 {lines}
