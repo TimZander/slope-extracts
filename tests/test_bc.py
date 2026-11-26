@@ -166,11 +166,21 @@ def test_an_hrdem_cell_partly_covered_reads_lidar_only(mini_cell, half_cone_dem,
     assert abs(e['sources']['lidar'] + e['sources']['none'] - 1) < 1e-3
     assert e['projects'] == ['BC-Example_2019-1m']
     assert e['layers']['t0-3m']['tiers']['0']['polygons'] > 0
+    # the cone's east half has no lidar: no polygon reaches past the cell's middle (a fill would)
+    from slope_extracts import cellfile
+    s_, w, n_, e_ = MINI
+    mid = grid.to_units((w + e_) / 2)
+    for name in ('t0-3m', 't0-2m', 't1-4'):
+        doc = cellfile.loads((tmp_path / mini_cell / f'{name}.json.gz').read_bytes())
+        xs = [x for cls in doc['tiers'].values() for polys in cls.values() for p in polys for ring in p
+              for _y, x in cellfile.decode_ring(ring)]
+        assert xs and max(xs) <= mid + grid.to_units(0.0002), name
 
 
 # Requirement: An hrdem cell with no lidar project is built empty without reading elevation
 def test_an_hrdem_cell_with_no_project_is_built_empty_without_a_read(mini_cell, tmp_path, monkeypatch):
     no_3dep(monkeypatch)
+    monkeypatch.setattr(sources, 'hrdem_probe', lambda **k: None)
     calls = []
     monkeypatch.setattr(sources, 'hrdem_tiles', lambda *a, **k: calls.append('tiles') or [DTM.format('2_4')])
     monkeypatch.setattr(sources, 'hrdem_projects', lambda *a, **k: [])
@@ -234,3 +244,99 @@ def test_the_notice_and_attribution_credit_both_sources():
     assert 'https://open.canada.ca/en/open-government-licence-canada' in text
     assert '- BC-Example_2019-1m' in text and '- CO_Central_Western_2016' in text
     assert 'USGS' in site.ATTRIBUTION and 'NRCan' in site.ATTRIBUTION and 'Open Government Licence' in site.ATTRIBUTION
+
+
+# --- conformance review: the projects probe, the limits, uncovered cells -------------------------
+
+
+
+class Probed(Catalogue):
+    """Projects only where `where` says: the probe's box (Vancouver) and/or the cell."""
+    def __init__(self, at_probe=True, at_cell=(), **kw):
+        super().__init__(**kw)
+        self.at_probe, self.at_cell = at_probe, list(at_cell)
+
+    def post(self, url, body):
+        if body['collections'] == ['hrdem-lidar']:
+            self.calls.append((url, body))
+            w, s_, e, n = body['bbox']
+            probe = (s_, w, n, e) == sources.PROBE_BOX
+            feats = [feature('BC-Vancouver_2020-1m')] if probe and self.at_probe else [feature(i) for i in self.at_cell]
+            return {'type': 'FeatureCollection', 'features': feats, 'links': []}
+        return super().post(url, body)
+
+
+@pytest.fixture
+def fresh_probe(monkeypatch):
+    monkeypatch.setattr(sources, '_PROBED', False)
+
+
+# Requirement: The catalogue must answer before a cell is built empty ("The projects search answers
+# empty everywhere")
+def test_no_project_anywhere_fails_the_cell(mini_cell, tmp_path, monkeypatch, fresh_probe):
+    no_3dep(monkeypatch)
+    monkeypatch.setattr(sources, '_post_json', Probed(at_probe=False).post)
+    with pytest.raises(RuntimeError, match='Vancouver'):
+        build_cell.build(mini_cell, str(tmp_path), source='hrdem', log=lambda *_: None)
+    assert not (tmp_path / mini_cell).exists()
+
+
+def test_the_probe_runs_once_and_lets_an_empty_cell_be_built(mini_cell, tmp_path, monkeypatch, fresh_probe):
+    no_3dep(monkeypatch)
+    cat = Probed(at_probe=True)
+    monkeypatch.setattr(sources, '_post_json', cat.post)
+    for d in ('a', 'b'):
+        e = build_cell.build(mini_cell, str(tmp_path / d), source='hrdem', log=lambda *_: None)
+        assert e['sources']['none'] == 1
+    probes = [b for _u, b in cat.calls if b['collections'] == ['hrdem-lidar'] and tuple(b['bbox']) == (-123.25, 49.25, -123.0, 49.5)]
+    assert len(probes) == 1
+
+
+# Requirement: Elevation in an hrdem area comes from NRCan lidar only ("A project id that isn't a plain
+# name": it doesn't count as a project meeting the frame)
+def test_a_cell_whose_only_project_has_a_bad_id_is_built_empty(mini_cell, tmp_path, monkeypatch, fresh_probe):
+    no_3dep(monkeypatch)
+    monkeypatch.setattr(sources, '_post_json', Probed(at_cell=['bad/id']).post)
+
+    def no_read(*a, **k):
+        raise AssertionError('elevation was read')
+    monkeypatch.setattr(dem, 'elevation_2m', no_read)
+    e = build_cell.build(mini_cell, str(tmp_path), source='hrdem', log=lambda *_: None)
+    assert e['sources']['none'] == 1 and e['projects'] == []
+
+
+def test_an_answer_of_more_than_20_pages_fails():
+    cat = Catalogue(projects=[[feature(f'BC-P{i}_2019-1m')] for i in range(21)])
+    with pytest.raises(RuntimeError, match='20 pages'):
+        sources.hrdem_projects(*BOX, post=cat.post)
+
+
+def test_an_answer_over_8_mib_fails(monkeypatch):
+    monkeypatch.setattr(sources.time, 'sleep', lambda s: None)
+
+    class Big:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            return b'{"features": [' + b' ' * n
+
+    with pytest.raises(RuntimeError, match='did not answer'):
+        sources._post_json(sources.STAC_SEARCH, {'collections': ['hrdem-lidar']}, opener=Big)
+
+
+# Requirement: A cell has one elevation source ("A cell no area covers")
+def test_a_cell_no_area_covers_fails_its_build(tmp_path, monkeypatch):
+    areas = tmp_path / 'areas.json'
+    areas.write_text(json.dumps([CO, BC]))
+    built = []
+    monkeypatch.setattr(build_cell, 'build', lambda c, *a, **k: built.append(c))
+    assert build_cell.main(['0_0', DILLON, '--out', str(tmp_path / 'o'), '--areas', str(areas)]) == 1
+    assert built == [DILLON]
+    assert json.loads((tmp_path / 'o' / 'failed.json').read_text()) == ['0_0']
