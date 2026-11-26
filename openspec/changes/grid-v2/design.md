@@ -97,3 +97,7 @@ switch; so the reader's version 2 must be proven before this merges.
   invalid), 5 consider (taken: overview counts as a cell tier's, version 1's other keys ignored and a
   cell listed twice taking the first entry, a box edge on a cell line, a flat quarter in the split
   scenario).
+- Spec review, round 7 (2026-11-26, with the owner's leave): 1 blocker (round 6's "a file with no
+  polygons is invalid" also caught version 1 entries the first run turns empty; now build-job and tile
+  index entries only), 1 should-fix (two scenarios now say the manifest is version 2), 4 consider (all
+  taken).

@@ -98,8 +98,8 @@ SHALL have no overview.
 
 ### Requirement: The manifest lists tiles and areas
 
-`manifest.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
-`layers`, `tiles`, mapping each tile with a covered cell to its entry, and `areas`, in `areas.json`'s
+`manifest.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution` (the sources'
+credit), `cellFormat` (the cell file's format and version), `layers` (the layer names), `tiles`, mapping each tile with a covered cell to its entry, and `areas`, in `areas.json`'s
 order, each with exactly `id`, `name`, `boxes` and `tiles` (the tiles holding cells it covers, in row then
 column order). The boxes describe an area; whether a cell exists is the tiles' to say.
 
@@ -139,8 +139,8 @@ each such cell, a split cell one bit, written as 16 lowercase hex digits, bit 0 
 
 A layer, a whole cell's or a quarter's, whose tiers hold no polygon SHALL be published as no file, its
 entry `bytes` 0 and `tiers` `{}`, and the deploy job SHALL request none. A layer file is never 0 bytes, so
-a reader knows it is empty without requesting it; an entry giving a layer with no polygon more bytes
-SHALL be invalid. This is apart from the left-out marker, whose `tiers` count tier `0`.
+a reader knows it is empty without requesting it; a build job's or tile index's entry giving a layer
+with no polygon more bytes SHALL be invalid (a version 1 one is read as the first run says). This is apart from the left-out marker, whose `tiers` count tier `0`.
 
 #### Scenario: A flat cell
 
@@ -220,12 +220,17 @@ manifest is published.
 #### Scenario: A v1 cell no area covers
 
 - **WHEN** the version 1 manifest lists a cell under a region that no area's boxes cover
-- **THEN** the new manifest would list fewer cells, so the deploy job fails and nothing is deployed
+- **THEN** the new site would hold fewer built cells, so the deploy job fails and nothing is deployed
 
 #### Scenario: A v1 left-out 2 m layer
 
 - **WHEN** a v1 cell's `t0-2m` is the left-out marker
 - **THEN** its new entry keeps the marker, and the plan still treats the layer as left out
+
+#### Scenario: A v1 layer file with no polygons
+
+- **WHEN** the version 1 manifest gives a cell's `t1-4` 300 bytes and 0 polygons in every tier
+- **THEN** the plan accepts the manifest, and the new tile index gives that `t1-4` `{"bytes": 0, "tiers": {}}`
 
 #### Scenario: A v1 layer with no polygons
 
@@ -284,7 +289,7 @@ build, no build job SHALL run, nor a deploy job unless the live manifest is vers
 
 #### Scenario: Nothing left
 
-- **WHEN** every cell of every area is built with the current recipe
+- **WHEN** the live manifest is version 2 and every cell of every area is built with the current recipe
 - **THEN** the run ends after the plan job
 
 #### Scenario: A whole cell built without its 2 m layer
@@ -317,11 +322,11 @@ nothing, unless the live manifest is version 1.
 #### Scenario: A second run
 
 - **WHEN** a run builds one more cell
-- **THEN** the deployed site holds both cells' files, and tile indexes and a manifest listing both
+- **THEN** the deployed site holds both cells' files, tile indexes listing both and a manifest counting both
 
 #### Scenario: Nothing built
 
-- **WHEN** every cell of a run failed
+- **WHEN** the live manifest is version 2 and every cell of a run failed
 - **THEN** nothing is deployed, and the live site stays as it was
 
 ### Requirement: The site sets its CORS and cache headers
@@ -516,7 +521,7 @@ extension, the text after its name's last dot.
 
 #### Scenario: A deployed site
 
-- **WHEN** a run deploys a site of one cell
+- **WHEN** a run deploys a site of one cell, of one area whose coverage lies in one tile
 - **THEN** `hashes.json` lists that cell's files under `cells/`, its tile's index and overview,
   `manifest.json`, `404.html` and `LICENSE.txt`, each with its hash, and nothing else
 
@@ -603,7 +608,7 @@ checks. The deploy job SHALL fail before the deployment is created otherwise, or
 - the live manifest is invalid, unless the first-deploy switch reads it as no manifest
 - a file it lists answers 404
 - it reads no manifest (a 404, or the switch) though the plan job read one
-- the new manifest would list fewer cells, each once, than the live one
+- the new site would hold fewer built cells, each once, than the live one
 
 #### Scenario: A file changed on the live site
 

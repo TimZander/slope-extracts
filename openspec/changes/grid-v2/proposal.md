@@ -27,7 +27,7 @@ answered the draft's open questions the same day.
   region paths stay. The reader must read version 2 before this merges.
 - **A layer with no polygons has no file** (owner): its entry says `bytes` 0, `tiers` `{}`.
 - The first run moves every built cell to its `cells/` path by its existing hash: nothing is rebuilt
-  or uploaded, and only `t1-4` files are read back, as every run.
+  or uploaded but what Cloudflare or `hashes.json` lacks, and only `t1-4` files are read back besides.
 
 ## Capabilities
 
