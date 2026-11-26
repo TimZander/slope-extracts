@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "The site lists its files' hashes": null,
+      "A deploy reads back only what it needs": null,
+      "The live hashes belong to the live manifest": null,
+      "A deploy uploads only the files Cloudflare lacks": null,
+      "Waits on Cloudflare are bounded": null,
+      "Files keep their content types": null,
+      "The deploy's one package is installed from its lockfile": null,
+      "The Cloudflare token reaches two curl calls only": null,
+      "The upload token stays out of the log": null,
+      "Deploying adds to the live site": "8713cbe728fd102b6dc93c902077eda4228cac8bfbac3e0461881fe636435687",
+      "Files read back from the live site are checked": "fc7a9d0996fd1b9428bf3702c5b4ea580d1a6499c419a12202f15f97080dab2c",
+      "The site sets its CORS and cache headers": "93794bd9c5ad50d4398e1c20816233300c768e6ea122448c9e57b8465c3373a7",
+      "The deploy job writes the overview from the cells it publishes": "0ee3bc236734bc05f90641211b3c4004a4276d0926a3c1d3b2f81d4de24b7b51",
+      "The site holds at most 19,000 files": "25176b4bee11c70de6e56933a232f40a96b60d1e79f07aab454babd75bc65749",
+      "Wrangler is installed from its lockfile, with no install scripts": "6773914a553d865441870eee25b25458efcfef2fc2de7258f7e8264036ef6648",
+      "The Cloudflare credentials reach one step only": "d4c27f9ad17f9d7ea6aac61c32516b13331a3421fafac23006091e1e77a43863"
+    }
+  }
+}

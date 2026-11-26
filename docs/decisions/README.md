@@ -8,7 +8,7 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 |---|---|---|
 | [0001](0001-slope-cells-precomputed-here.md) | Slope cells are precomputed per 0.25° cell here; the app compiles them | accepted |
 | [0002](0002-cells-as-gzip-json-of-delta-map-units.md) | A cell is three gzip JSON layer files of delta-coded 24-bit map units | accepted |
-| [0003](0003-direct-upload-with-the-token-in-an-environment.md) | Pages Direct Upload from one step holding the token; its account-wide reach is the owner's call | accepted |
+| [0003](0003-direct-upload-with-the-token-in-an-environment.md) | Pages Direct Upload from one step holding the token; its account-wide reach is the owner's call | superseded by 0023 |
 | [0004](0004-python-with-hash-pinned-wheels.md) | Python; build jobs install hash-pinned wheels; plan and deploy install nothing | accepted |
 | [0005](0005-newest-lidar-survey-wins.md) | Where lidar surveys overlap, the newest publication wins; 10 m fills gaps | accepted |
 | [0006](0006-incremental-runs-48-cells-backfill-then-yearly.md) | At most 48 missing, stale or year-old cells per run; 3-hourly backfill, then June only | accepted |
@@ -28,3 +28,8 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0020](0020-whole-cells-with-a-layer-left-out-are-rebuilt.md) | The plan rebuilds a whole cell the live manifest lists with a layer left out | accepted |
 | [0021](0021-every-region-has-quartered.md) | Every region has `quartered`, `{}` when it has no split cell | accepted |
 | [0022](0022-a-quarter-holds-exactly-layers.md) | A quarter object in the manifest holds exactly `layers` | accepted |
+| [0023](0023-deploy-from-a-manifest-of-hashes.md) | Deploy from a manifest of file hashes, uploading only what Cloudflare lacks | accepted |
+| [0024](0024-hashes-in-a-side-file.md) | The files' hashes live in a side file, `hashes.json`, not in `manifest.json` | accepted |
+| [0025](0025-the-token-reaches-two-curl-calls-only.md) | The Cloudflare token reaches only two curl calls; the upload token is masked and passed in a file | accepted |
+| [0026](0026-wrangler-replaced-by-blake3-wasm.md) | Wrangler is replaced by its hashing package, `blake3-wasm` 2.1.5 | accepted |
+| [0027](0027-the-purpose-edited-in-place.md) | The spec's Purpose is edited in place for the deploy credential's two calls | accepted |

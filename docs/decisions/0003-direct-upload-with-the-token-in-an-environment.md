@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0023
 date: 2026-11-23
 decision-makers: the owner (Direct Upload: "i dont mind api token secret being added"; project slope-extracts on slope.timzander.com); Claude (the deploy mechanics)
 ---

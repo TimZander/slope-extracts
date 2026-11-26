@@ -5,22 +5,25 @@
 # built over 300 days ago; at most 48 per run, three per job. With nothing to build a run is the plan
 # job alone.
 #
-# Security model (ADR 0003, ADR 0007):
+# Security model (ADR 0003, ADR 0007, and the deploy-from-hashes ADRs):
 # - Triggers are `schedule` and `workflow_dispatch` with no inputs: nothing a fork, a pull request or a
 #   run's caller can steer.
 # - Every job has `contents: read` only. The Cloudflare token and account id live in the GitHub
 #   Environment `pages-production` (deployments from `main` only). Only the deploy job uses that
-#   Environment, and only its last step (wrangler) is given them, through `env:`.
-# - Only GitHub's checkout/upload-artifact/download-artifact, each pinned by commit SHA. Wrangler and its
-#   dependencies come from deploy/package-lock.json via `npm ci --ignore-scripts`, in a step with no
-#   secret. No `setup-python`, no expression inside `run:`.
+#   Environment, and only two of its steps are given them, through `env:`: each writes them with shell
+#   builtins into curl's header and config files, unsets them, and runs one curl to api.cloudflare.com
+#   (an upload token for the project; then the deployment). The upload token is masked at once and
+#   passed to the upload step in a private file, never an output.
+# - Only GitHub's checkout/upload-artifact/download-artifact, each pinned by commit SHA. The deploy's one
+#   package, blake3-wasm, comes from deploy/package-lock.json via `npm ci --ignore-scripts`, in a step
+#   with no secret. No `setup-python`, no expression inside `run:`.
 # - Nothing runs until the owner sets the repository variable BUILD_ENABLED to true, after the
 #   Cloudflare project and the Environment's secrets exist (docs/setup.md, ADR 0008).
 # - The repository variable FIRST_DEPLOY, set for one run, lets the first deploy replace a placeholder
 #   site that answers every path with 200 (ADR 0009). Variables are set by admins only.
 # - Plan and build jobs read third-party data with no secret. Build-job wheels are hash-pinned. The
 #   deploy job checks every file they upload, and every file it reads back from the live site, before
-#   the wrangler step runs.
+#   any step holding a secret runs. Files it keeps are deployed by their live hash, unread.
 name: build
 
 on:
@@ -113,30 +116,62 @@ jobs:
         with:
           pattern: cells-*
           path: ${{ runner.temp }}/artifacts
-      # Checks this run's cells against the plan, reads the rest of the site back from the live site
-      # (checked too) and writes the whole site to _site/. Holds no credential.
+      # Checks this run's cells against the plan, reads back from the live site what the deployment
+      # can't take by hash (every kept t1-4, for the overviews; any file hashes.json doesn't list),
+      # checks it, and writes _site/ (files to hash) and _deploy/ (kept hashes, checks, _headers).
+      # Holds no credential.
       - name: Assemble the site
         id: site
         env:
           PLAN_JOBS: ${{ needs.plan.outputs.jobs }}
           PLAN_HAD_MANIFEST: ${{ needs.plan.outputs.had_manifest }}
           FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}
-        run: python3 -m slope_extracts.publish assemble --artifacts "$RUNNER_TEMP/artifacts" --out _site
-      # Wrangler and everything under it come from deploy/package-lock.json (integrity hashes), with
-      # no install scripts, in a step that holds no secret.
-      - name: Install wrangler
+        run: python3 -m slope_extracts.publish assemble --artifacts "$RUNNER_TEMP/artifacts" --out _site --state _deploy
+      # blake3-wasm alone, from deploy/package-lock.json (integrity hash), with no install scripts, in a
+      # step that holds no secret.
+      - name: Install the hashing package
         if: steps.site.outputs.changed == 'true'
         working-directory: deploy
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          ./node_modules/.bin/wrangler --version
-      # The only step given the Cloudflare credentials. Direct Upload sends only files whose content
-      # changed, so a run uploads its own cells, not the whole site.
-      - name: Deploy to Pages
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # Hashes _site/ as Pages does, checks the read-back files and the live manifest against the live
+      # hashes.json, and writes _site/hashes.json and the deployment's manifest. No secret.
+      - name: Hash the site
         if: steps.site.outputs.changed == 'true'
-        working-directory: deploy
+        run: node deploy/pages.mjs hash --site _site --state _deploy
+      # Secrets 1 of 2: a short-lived upload token for project slope-extracts. Builtins write the
+      # secrets into curl's header and config files and unset them before any program runs; curl writes
+      # the answer to a file; cf_answer.py masks the upload token and saves it, mode 600.
+      - name: Get an upload token
+        if: steps.site.outputs.changed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_SEND_METRICS: 'false'
-        run: ./node_modules/.bin/wrangler pages deploy ../_site --project-name=slope-extracts --branch=main --commit-dirty=true
+        run: |
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/cf-auth" "$RUNNER_TEMP/cf-curl" "$RUNNER_TEMP/cf-answer"' EXIT
+          printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/cf-auth"
+          printf 'url = "https://api.cloudflare.com/client/v4/accounts/%s/pages/projects/slope-extracts/upload-token"\n' "$CLOUDFLARE_ACCOUNT_ID" > "$RUNNER_TEMP/cf-curl"
+          unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          curl -fsS --max-time 120 -K "$RUNNER_TEMP/cf-curl" -H @"$RUNNER_TEMP/cf-auth" -o "$RUNNER_TEMP/cf-answer"
+          python3 -I deploy/cf_answer.py jwt "$RUNNER_TEMP/cf-answer" "$RUNNER_TEMP/pages-jwt"
+      # Uploads only the files Cloudflare lacks, with the upload token alone (it removes the token's
+      # file at once), then confirms every hash. A kept file Cloudflare lacks is read back from the live
+      # site and sent only if it hashes to its hashes.json entry.
+      - name: Upload the new files
+        if: steps.site.outputs.changed == 'true'
+        run: node deploy/pages.mjs upload --site _site --state _deploy --jwt-file "$RUNNER_TEMP/pages-jwt"
+      # Secrets 2 of 2: creates the deployment from the manifest of hashes, with _headers beside it.
+      - name: Create the deployment
+        if: steps.site.outputs.changed == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/cf-auth" "$RUNNER_TEMP/cf-curl" "$RUNNER_TEMP/cf-answer"' EXIT
+          printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/cf-auth"
+          printf 'url = "https://api.cloudflare.com/client/v4/accounts/%s/pages/projects/slope-extracts/deployments"\n' "$CLOUDFLARE_ACCOUNT_ID" > "$RUNNER_TEMP/cf-curl"
+          unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          curl -fsS --max-time 300 -K "$RUNNER_TEMP/cf-curl" -H @"$RUNNER_TEMP/cf-auth" -o "$RUNNER_TEMP/cf-answer" \
+            -F "manifest=<_deploy/deployment.json" -F "branch=main" -F "_headers=@_deploy/_headers;filename=_headers"
+          python3 -I deploy/cf_answer.py deployment "$RUNNER_TEMP/cf-answer"

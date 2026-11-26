@@ -14,9 +14,11 @@ USGS 3D Elevation Program (3DEP) and published as a static site at <https://slop
     `quartered`, not `cells`, with per-quarter layers. A quarter's `t0-2m` still too large is left out
     with a warning; the manifest then gives that layer `bytes` 0 and no polygons, and the site holds no
     file for it.
-  - A deploy job checks them and reads the rest of the site back from the live site. It writes each
-    region's `overview.json.gz` (every built cell's tier 4, for the app's zoomed-out view), then uploads
-    the whole site with `wrangler pages deploy` (Direct Upload sends only changed files).
+  - A deploy job checks them, reads back from the live site only what it needs (every cell's `t1-4`,
+    for each region's `overview.json.gz`, the app's zoomed-out view), and writes `hashes.json`: every
+    file's Pages hash. It then creates a Pages deployment from that manifest of hashes, uploading only
+    the files Cloudflare lacks (`deploy/pages.mjs`), so a deploy's time and disk grow with its new
+    cells, not the site.
 - **Setup:** `docs/setup.md` (Cloudflare project, token, Environment, then `BUILD_ENABLED`).
 - **Locally:** `python -m venv .venv && .venv/bin/pip install -r requirements.in && .venv/bin/python -m
   pytest -q tests`. Build a real cell with `.venv/bin/python -m slope_extracts.build_cell 158_-425 --out

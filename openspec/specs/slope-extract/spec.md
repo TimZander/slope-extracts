@@ -2,7 +2,7 @@
 
 ## Purpose
 Builds slope-angle class polygons per 0.25° cell from USGS 3DEP elevation and publishes them as a static
-Cloudflare Pages site in the form garmin-map's slope layer reads, with its deploy credential confined to one step.
+Cloudflare Pages site in the form garmin-map's slope layer reads, with its deploy credential confined to two plain API calls.
 
 ## Requirements
 

@@ -14,7 +14,9 @@ Guidance for agents working in this repository.
   `grid.py`, `recipe.py`): keep it that way, because the deploy job holds the write token.
 - The build workflow (`.github/workflows/build.yml`) is high-risk: changes to it get `/security-review`
   and an attack test. It deploys with a Cloudflare token whose Pages permission is account-wide (ADR
-  0003): the token stays in the `pages-production` Environment and reaches only the wrangler step.
+  0003): the token stays in the `pages-production` Environment and reaches only the deploy job's two
+  curl calls, through header and config files that shell builtins write (ADR 0025). Never give it to
+  another program, and never print it or the upload token.
   Never add a workflow input, a `pull_request_target` trigger, or a step after checkout that runs code
   from a cell artifact.
 - The cell format and manifest are a contract with garmin-map's `slope-layer` spec. Changing them is a
