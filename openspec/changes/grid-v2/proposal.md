@@ -40,7 +40,7 @@ answered the draft's open questions the same day.
 
 - `regions.json` → `areas.json`; `slope_extracts/site.py`, `publish.py`, `overview.py`, `grid.py`,
   `build_cell.py` (job items, empty layers); `deploy/pages.mjs` (the hash tie on the manifest and tile
-  indexes); `.github/workflows/build.yml` (job items only); tests, README, ADRs.
+  indexes); `.github/workflows/build.yml` (job items, the plan job's limit, a deploy while the manifest is version 1); tests, README, ADRs.
 - **Contract:** a new manifest, tile indexes and overviews, and empty layers without files. The reader's
   matching change, in its own repository, must ship first: until it does, it reads version 2 as unknown.
 - **Files:** each cell once, and fewer files for flat cells.

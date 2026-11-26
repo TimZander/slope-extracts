@@ -180,22 +180,45 @@ version than the plan job did.
 - **WHEN** the plan job read a version 1 manifest, and the deploy job reads a version 2 one
 - **THEN** the deploy job fails and nothing is deployed
 
+### Requirement: A version 1 manifest still deploys
+
+While the live manifest is version 1, a run SHALL deploy even when it builds no cell, so the site moves
+to the grid at the first run after the change. The version 1 manifest SHALL be read as it was: `format`
+`slope-extract`, `version` 1, and regions each with an `id`, `coverage`, `cells` and, optionally,
+`quartered`, whose entries take the form and checks of a tile index's.
+
+#### Scenario: Nothing to build on the first run
+
+- **WHEN** the live manifest is version 1 and every covered cell is built and current
+- **THEN** the run still deploys, and the site holds a version 2 manifest and every cell under `cells/`
+
+#### Scenario: An invalid version 1 manifest
+
+- **WHEN** the live version 1 manifest lists a cell in both `cells` and `quartered` of a region
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
+
 ### Requirement: The first run moves the cells onto the grid
 
 When the live manifest is version 1, checked as before this change, the deploy job SHALL keep each cell
 it lists and this run doesn't build, deploying each file at `cells/` by its v1 path's hash; it SHALL read
-back from that v1 path its `t1-4`, any file `hashes.json` doesn't list or Cloudflare lacks. A layer its
-v1 counts give no polygon becomes empty. No v1 path or manifest is published.
+back from that v1 path its `t1-4`, any file `hashes.json` doesn't list or Cloudflare lacks. A layer with
+a file and no polygon in its v1 counts becomes empty; a left-out marker stays one. No v1 path or
+manifest is published.
 
 #### Scenario: Colorado's cells move
 
-- **WHEN** the live site holds 350 built Colorado cells under `colorado/` and a version 1 manifest, and a run builds 48 more
+- **WHEN** the live site holds 350 built Colorado cells under `colorado/` and a version 1 manifest, `hashes.json` lists all their files, Cloudflare holds them, and a run builds 48 more
 - **THEN** the deploy reads back only the 350 `t1-4` files from `colorado/…`, and the deployment holds all 398 under `cells/…`, nothing under `colorado/`, and a version 2 manifest listing all 398
 
 #### Scenario: A v1 cell no area covers
 
 - **WHEN** the version 1 manifest lists a cell under a region that no area's boxes cover
 - **THEN** the new manifest would list fewer cells, so the deploy job fails and nothing is deployed
+
+#### Scenario: A v1 left-out 2 m layer
+
+- **WHEN** a v1 cell's `t0-2m` is the left-out marker
+- **THEN** its new entry keeps the marker, and the plan still treats the layer as left out
 
 #### Scenario: A v1 layer with no polygons
 
@@ -237,7 +260,7 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 ### Requirement: A run builds missing and stale cells, at most 48
 
 The plan job SHALL read the live manifest and tile indexes and choose, the areas in list order and each
-area's coverage in order, each covered cell once that its tile doesn't list, lists with another recipe
+area's coverage in order, each covered cell once that its tile's `cells` and `quartered` don't list, lists with another recipe
 number, lists as built more than 300 days ago, or lists whole with `t0-2m` left out (not empty), at most
 48, in jobs of 3 cells. With none to
 build, no build or deploy job SHALL run.
@@ -406,7 +429,7 @@ The deploy job SHALL fail, publishing nothing, when:
 - a whole cell's folder holds anything but `entry.json` and the layers its entry gives a size above 0
 - any of these files is not regular, or is over 20 MiB
 - a file is not exactly the slope-cell form of its path (classes per tier, points within its cell or
-  quarter), or `entry.json` holds keys or values the manifest doesn't allow
+  quarter), or `entry.json` holds keys or values an entry may not hold
 
 #### Scenario: A hostile artifact
 
@@ -618,7 +641,8 @@ checks. The deploy job SHALL fail before the deployment is created otherwise, or
 The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is over 4 MiB, not its
 keys, format, version and `/<path>` → hash entries, or answers other than 200 or 404; when its
 `/manifest.json` entry isn't the read manifest's hash; or when a file read back hashes to another entry
-it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept paths with none.
+it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept paths with none, but
+on the first run on the grid, where a `cells/` path takes its v1 path's entry.
 
 #### Scenario: Hashes from another deployment
 
@@ -684,6 +708,44 @@ The deploy job SHALL fail before the deployment is created when its manifest wou
 
 - **WHEN** the deployment's manifest would name 18,999 files besides `hashes.json`
 - **THEN** it names 19,000 files, and the deploy goes ahead
+
+### Requirement: A deploy uploads only the files Cloudflare lacks
+
+The deploy job SHALL ask Cloudflare which of the deployment's hashes it lacks, upload only those files,
+then confirm every hash of the deployment to Cloudflare. A lacking file in the run's folder SHALL be
+uploaded from it; any other SHALL be read back, a bucket at a time without writing it to disk, and
+uploaded only if it is the size its entry gives, passes the cell-file checks and hashes to its `hashes.json`
+entry; else the deploy fails.
+
+#### Scenario: Only new files
+
+- **WHEN** Cloudflare holds every kept file's hash, and lacks two of the files this run wrote
+- **THEN** the run uploads exactly those two, confirms every hash of the deployment, and creates the deployment
+
+#### Scenario: A kept file Cloudflare no longer holds
+
+- **WHEN** Cloudflare lacks the hash of a kept cell's `t0-3m` file, and the live site serves that file unchanged
+- **THEN** the deploy job reads it back, uploads it, and creates the deployment
+
+#### Scenario: A kept file read back too large
+
+- **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with more bytes than the manifest gives it
+- **THEN** the deploy job fails without reading past that size, and no deployment is created
+
+#### Scenario: A kept file re-read that isn't a cell file
+
+- **WHEN** Cloudflare lacks a kept file's hash, and the live site serves at that path bytes of its manifest size that hash to its `hashes.json` entry but aren't a slope-cell file of that cell and layer
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A re-read leaves no file
+
+- **WHEN** the deploy job reads back a kept file Cloudflare lacks and uploads it
+- **THEN** no file holding its bytes is left on the runner
+
+#### Scenario: A kept file changed on the live site
+
+- **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with other bytes
+- **THEN** the deploy job fails and no deployment is created
 
 ## REMOVED Requirements
 

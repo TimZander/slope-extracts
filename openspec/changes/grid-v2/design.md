@@ -45,8 +45,10 @@ cell file's form or the recipe.
 8. **Build jobs get plain cell ids** (`158_-425`), so a job can't be given one cell twice under two
    names.
 9. **The first run reads the version 1 manifest**, keeps its cells by their v1 paths' hashes, reads back
-   only `t1-4`, and turns a layer whose v1 counts hold no polygon into an empty one. Nothing is rebuilt
-   or uploaded but the run's own cells.
+   only `t1-4`, and turns a layer that has a file but no polygon into an empty one (a left-out marker
+   stays one). Nothing is rebuilt or uploaded but the run's own cells. While the manifest is version 1,
+   a run deploys even with nothing built (the plan says so in an output, and the deploy job's condition
+   in `build.yml` reads it), so the move doesn't wait for a stale cell.
 10. **The empty marker differs from the left-out one**: left out is `t0-2m` with tier `0` counted at 0;
     empty is any layer with `tiers` `{}`. Both have no file and `bytes` 0.
 
@@ -84,4 +86,9 @@ switch; so the reader's version 2 must be proven before this merges.
 
 - Spec review, rounds 1–3 (2026-11-26), on the first draft (both layouts published): 4, 1 and 1
   blockers, all fixed. The owner's answers then removed the version 1 copies and added empty layers, so
-  the delta was rewritten; not reviewed again yet (the workflow's three rounds are used).
+  the delta was rewritten and reviewed again in rounds 4 and 5, with the owner's leave.
+- Spec review, round 5 (2026-11-26): 1 blocker (the first run's empty-layer rule caught the left-out
+  marker; now excluded), 5 should-fix (the first run's `cells/` paths take their v1 entries; the plan
+  builds what a tile's `cells` and `quartered` don't list; a run deploys while the manifest is version
+  1; the version 1 manifest's form kept; a re-read's size from its entry), 7 consider (3 taken; scenario
+  names of modified requirements kept, as the archive requires).
