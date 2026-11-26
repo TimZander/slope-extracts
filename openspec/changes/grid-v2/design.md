@@ -35,10 +35,10 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
    states). With no `index.json`, it reads the v1 manifest's cells as built (open question 6).
 5. **Build jobs get plain cell ids** (`158_-425`, no region), so a job can't be given one cell twice
    under two names.
-6. **The deploy's read-back stays as ADR 0023 has it**, by path. On the first run the `cells/` paths
-   aren't on the site yet, so every built cell is read back from its first area's v1 path, checked, and
-   published at both ("The first run moves the cells onto the grid"): about 15 minutes at 464 cells,
-   once; later runs take kept files by hash.
+6. **The first run reads back only `t1-4`**, as every run does: the `cells/` copies of v1 cells take the
+   hash of their v1 files ("The first run moves the cells onto the grid"), so nothing else is read or
+   uploaded. A file Cloudflare lacks is read back from whichever of its paths `hashes.json` lists
+   ("A cell's copies share its hash"), which `deploy/pages.mjs` must learn.
 7. **The v1 copies are written from the same bytes** as the `cells/` files, and hashed once.
 8. **The live index replaces the live manifest** in every rule that reads the live site ("Rules that
    read the live manifest read the index"), with the v1 manifest only before the first run; the plan
@@ -46,7 +46,9 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
 9. **A cell's copies share its hash** ("A cell's copies share its hash"): an area that newly covers a
    built cell gets its v1 copies by the hash of the `cells/` files, with nothing read or uploaded.
 10. **Shrinking an area** drops its cells from the index, which the "fewer cells" guard refuses; that
-    needs a change of its own, as dropping a region does today.
+    needs a change of its own, as dropping a region does today (open question 10).
+11. **At most 40 areas**: `_headers` names two rules per area, and Cloudflare Pages reads at most 100
+    rules; 40 leaves room for the site's own.
 ## Open Questions (for the owner)
 
 1. **What is an area?** Assumption: a list of boxes, drawn by hand (Idaho as three or four boxes
@@ -74,6 +76,9 @@ format; removing the v1 manifest (a later change, once the reader reads the inde
 9. **A v1 region from an area of several boxes** gets the boxes' outer edges as `bounds`, with a
    coverage smaller than those bounds cover. Assumption: the reader uses `coverage`, not `bounds`, to
    know which cells exist. If it relies on bounds, areas should be one box each while v1 lasts.
+10. **Removing or shrinking an area.** Assumption: as removing a region today, the deploy refuses a
+    site with fewer cells, so it needs its own change. Another way: keep such cells, listed in their
+    tile, until the yearly refresh drops them.
 
 ## Risks / Trade-offs
 
@@ -101,3 +106,8 @@ revert; the v1 manifest and files are still whole.
   and deploy reading different files, which v1 path the first run reads, cells no area covers any
   more), 4 consider (the index's count keys renamed `covered` and `built`, wording, tasks, numbering).
   All taken.
+- Spec review, round 3 (2026-11-26): 1 blocker (the first run read every cell back while the copies'
+  rule took them by hash; now by hash, `t1-4` read back only), 6 should-fix (the read-back rule's paths
+  and once per cell; a lacking file read from a listed path; cells this run builds aren't kept; tile
+  overview entries unused; tile index sizes checked; at most 40 areas for `_headers`' 100 rules), 3
+  consider (taken). Round 3 is the workflow's last without the owner's say; not reviewed again.

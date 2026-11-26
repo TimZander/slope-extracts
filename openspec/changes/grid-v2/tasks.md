@@ -10,7 +10,8 @@ The owner answers the design's open questions before task 1.
 
 - [ ] 2.1 `areas.json` (Colorado as one box) and its checks, replacing `regions.json`
 - [ ] 2.2 `grid.py`: tiles of a cell; `site.py`: coverage as the union of areas, the plan, the index, tile indexes, v1 regions from areas, `_headers`
-- [ ] 2.3 `publish.py` and `overview.py`: cells at `cells/`, tile overviews, v1 copies, read-back by the new paths
+- [ ] 2.3 `publish.py` and `overview.py`: cells at `cells/`, tile overviews, v1 copies, the first run's move, copies sharing a hash, the live index's checks, read-back by the new paths
+- [ ] 2.5 `deploy/pages.mjs`: the hash tie on `index.json` and tile indexes; a lacking file re-read from a listed path
 - [ ] 2.4 `build_cell.py` and `build.yml`: plain cell ids in job lists
 
 ## 3. Records

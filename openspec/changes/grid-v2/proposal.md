@@ -36,12 +36,12 @@ draft says how, for the owner to decide before anything is built.
 ## Impact
 
 - `regions.json` → `areas.json`; `slope_extracts/site.py`, `publish.py`, `overview.py`, `grid.py`,
-  `build_cell.py` (job items), `deploy/pages.mjs` (none expected); `.github/workflows/build.yml` (job
+  `build_cell.py` (job items), `deploy/pages.mjs` (the hash tie on `index.json` and tile indexes, re-reads from a listed path); `.github/workflows/build.yml` (job
   items only); tests, README, ADRs.
 - **Contract:** a new index and tile files for the manifest's reader; the v1 manifest unchanged while
   it lasts. The reader's own change belongs to its repository.
-- **Migration:** the first run republishes every cell at its `cells/` path: the same bytes, so nothing
-  is rebuilt, and Cloudflare holds them by hash already.
+- **Migration:** the first run republishes every cell at its `cells/` path by its v1 files' hashes:
+  nothing is rebuilt, read back (but `t1-4`, as every run) or uploaded.
 - **Files:** the v1 copies double the cell paths while they last (about 2,800 files at Colorado's
   464 cells); dropping them is the step before adding large areas.
 - Supersedes the paused `add-wyoming-utah-idaho` change's fix for border cells (a cell is no longer

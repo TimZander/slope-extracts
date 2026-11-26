@@ -19,6 +19,7 @@
       "The site sets its CORS and cache headers": "ca03ee16553678ee5a4bf617a756035d78e6b3f1575e624eba136b56c89f05d0",
       "The manifest lists each region's coverage and built cells": "f8c84b1524cd9d0a00490148a8b60dc81e3cce7535bbedff17c09a5ae2ad317f",
       "The site lists its files' hashes": "24f3fcbd26c3d9a096a8a196ac01d4e5d0cd07ed3a6f6d3f1b4513997a944ad6",
+      "A deploy reads back only what it needs": "59219a0747fbddb9d9bceea77c09a112c1dd1c0efadaa4ea04aaf0b47ec678cb",
       "The regions list": "140c34c4a0851ec89be0b5075b4cf9a5e8cd869c5cf61bde55e074ffe9a85054"
     }
   }

@@ -3,7 +3,7 @@
 ### Requirement: The areas list
 
 The areas list SHALL be one file, `areas.json`, of at least one area, each with exactly `id` (lowercase
-letters, digits and single hyphens, unique, not `cells` or `tiles`), `name` (not blank) and `boxes`: a list of bounds,
+letters, digits and single hyphens, unique, not `cells` or `tiles`), `name` (not blank) and `boxes`: a list of bounds, at most 40 areas,
 each numeric `south` < `north` within ±90 and `west` < `east` within ±180. An area's coverage SHALL be
 every cell one of its boxes touches, each once, in row then column order. A list breaking a rule SHALL
 fail the plan job.
@@ -66,7 +66,7 @@ file's limits (20 MiB, 64 MiB of JSON).
 ### Requirement: The index lists tiles and areas
 
 `index.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
-`layers`, `tiles`, mapping each tile with a covered cell to its `covered` count and `built` count (whole and split), its
+`layers`, `tiles`, mapping each tile with a covered cell to its `covered` and `built` counts (one number each, split cells counted), its
 `index` bytes and, when it has one, its `overview` entry (`bytes`, `polygons`, `points`); and `areas`,
 each with `id`, `name`, `boxes` and `tiles`: the tiles holding cells it covers.
 
@@ -90,8 +90,9 @@ built cell's files at `<area>/<cell>/…` (the bytes of its `cells/` files) and 
 
 The plan and deploy jobs SHALL read `index.json` (at most 4 MiB) and each tile index it lists (at most 4
 MiB), and fail when any isn't of its form, a listed tile index answers other than 200, a tile index lists
-a cell outside its tile, or its counts differ from the index's. The deploy job SHALL fail when it finds
-an `index.json` and the plan job didn't, or the other way round.
+a cell outside its tile, or its size or counts differ from the index's; a tile's `overview` entry is
+used for nothing. The deploy job SHALL fail when it finds an `index.json` and the plan job didn't, or
+the other way round.
 
 #### Scenario: A tile index missing
 
@@ -134,7 +135,8 @@ Before then they read `manifest.json`, as now.
 
 A kept cell's file at a v1 path `hashes.json` doesn't list (an area that newly covers the cell) SHALL be
 deployed with the hash of the same file at its `cells/` path, unread, and the same for the other way
-round; it SHALL be read back only where neither path is listed.
+round. A file Cloudflare lacks SHALL be read back from a path `hashes.json` lists, its `cells/` path
+first; one listed at neither SHALL be read back as a kept file.
 
 #### Scenario: An area newly covering a built cell
 
@@ -143,15 +145,15 @@ round; it SHALL be read back only where neither path is listed.
 
 ### Requirement: The first run moves the cells onto the grid
 
-When the live site has a v1 manifest and no `index.json`, the deploy job SHALL take every built cell
-the v1 manifest lists as kept, read back each of its files from the v1 path of the first region that
-manifest lists it in, checked as a v1 file, and publish the bytes at its `cells/` path and every
-covering area's v1 path.
+When the live site has a v1 manifest and no `index.json`, the deploy job SHALL keep every cell that
+manifest lists and this run doesn't build, and deploy its files at its `cells/` path and every covering
+area's v1 path by the hash `hashes.json` gives its v1 path in the first region listing it, reading back
+only its `t1-4`, as a kept cell's.
 
 #### Scenario: Colorado's cells move
 
 - **WHEN** the live site holds 350 built Colorado cells under `colorado/` and no `index.json`, and a run builds 48 more
-- **THEN** the deploy reads back the 350 cells' files from `colorado/…`, and the deployment holds all 398 at `cells/…` and at `colorado/…`, with an index listing all 398
+- **THEN** the deploy reads back only the 350 `t1-4` files from `colorado/…`, and the deployment holds all 398 cells at `cells/…` and at `colorado/…`, with an index listing all 398
 
 ## MODIFIED Requirements
 
@@ -308,6 +310,32 @@ extension, the text after its name's last dot.
 - **THEN** `hashes.json` lists that cell's three files under `cells/` and under the area's v1 path, its
   tile's index and overview, the area's v1 overview, `index.json`, `manifest.json`, `404.html` and
   `LICENSE.txt`, each with its hash, and nothing else
+
+### Requirement: A deploy reads back only what it needs
+
+The deploy job SHALL read back from the live site `hashes.json`, each kept cell's `t1-4` files once from
+its `cells/` path (a v1 path on the first run), for the overviews, and each kept file no path of which
+`hashes.json` lists, and deploy them from the bytes read; it SHALL
+take every other kept file's hash from `hashes.json` unread. With no live manifest it SHALL read no
+`hashes.json`; one answering 404 SHALL list nothing. A kept cell is one the new manifest lists and
+this run didn't build.
+
+#### Scenario: A run after a run
+
+- **WHEN** the live site holds one cell and its `hashes.json`, Cloudflare holds every kept hash, and a run builds another cell
+- **THEN** the deploy job requests from the live site `index.json`, the tile indexes, `hashes.json` and
+  the first cell's `t1-4` file at `cells/` only, and the deployment names both cells' files
+
+#### Scenario: The first run after this change
+
+- **WHEN** the live site holds one cell and no `hashes.json`, and a run builds another cell
+- **THEN** the deploy job reads back and checks all three of the first cell's files, as before, and
+  the new `hashes.json` lists both cells' files
+
+#### Scenario: A hash not of its form
+
+- **WHEN** the live `hashes.json` maps a kept file to `"zz"`
+- **THEN** the deploy job fails and nothing is deployed
 
 ## REMOVED Requirements
 
