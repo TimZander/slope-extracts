@@ -2,6 +2,7 @@
 empty layers, and the first run that moves a version 1 site onto the grid."""
 import datetime
 import json
+import pathlib
 
 import pytest
 
@@ -446,7 +447,7 @@ def test_a_version_1_cell_no_area_covers_fails_the_deploy(tmp_path):
     live.files['manifest.json'] = json.dumps(m).encode()
     live.set_hashes()
     artifact(tmp_path, [DILLON])  # the new site holds DILLON only; the live one held 2
-    with pytest.raises(RuntimeError, match='fewer'):
+    with pytest.raises(RuntimeError, match='leave out'):
         run(tmp_path, live)
 
 
@@ -670,3 +671,36 @@ def test_attack_a_plan_manifest_version_that_isnt_one_is_refused(tmp_path, monke
     assert publish.main(['assemble', '--artifacts', str(tmp_path / 'artifacts'), '--out', str(tmp_path / 'out'),
                          '--state', str(tmp_path / 'state')]) == 1
     assert not (tmp_path / 'out' / 'manifest.json').exists()
+
+
+# Requirement: The site lists its files' hashes ("A deployed site")
+def test_a_deployed_sites_hashes_list_exactly_its_files(live, tmp_path):
+    import subprocess
+    from test_site_publish import NODE_MODULES
+    if not NODE_MODULES.exists():
+        pytest.skip('run npm ci --ignore-scripts in deploy/ first')
+    one = [{'id': 'dillon', 'name': 'Dillon', 'boxes': [box((158, 158), (-425, -425))]}]
+    artifact(tmp_path, [DILLON])
+    _c, out = run(tmp_path, live, areas=one)
+    script = pathlib.Path(__file__).resolve().parent.parent / 'deploy' / 'pages.mjs'
+    r = subprocess.run(['node', str(script), 'hash', '--site', str(out), '--state', str(state_of(out))],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    files = json.loads((out / 'hashes.json').read_text())['files']
+    assert sorted(files) == sorted([f'/cells/{DILLON}/t0-3m.json.gz', f'/cells/{DILLON}/t0-2m.json.gz',
+                                    f'/cells/{DILLON}/t1-4.json.gz', '/tiles/19_-54/index.json',
+                                    '/tiles/19_-54/overview.json.gz', '/manifest.json', '/404.html', '/LICENSE.txt'])
+    assert all(publish.PAGES_HASH.fullmatch(h) for h in files.values())
+
+
+# Requirement: Files read back from the live site are checked ("A v1 cell no area covers, while a run
+# builds more")
+def test_a_version_1_cell_no_area_covers_fails_even_when_more_are_built(tmp_path):
+    live = v1_site([DILLON, '0_0'])
+    m = json.loads(live.files['manifest.json'])
+    m['regions'][0]['coverage'].append('0_0')
+    live.files['manifest.json'] = json.dumps(m).encode()
+    live.set_hashes()
+    artifact(tmp_path, [OTHER, NEIGHBOUR])  # 3 cells after, 2 before; 0_0 is left out
+    with pytest.raises(RuntimeError, match='leave out'):
+        run(tmp_path, live)

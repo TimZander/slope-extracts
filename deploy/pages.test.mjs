@@ -40,7 +40,9 @@ function fixture ({ kept = {}, checks = { readback: {}, live: [] }, liveFiles = 
   write(path.join(site, 'manifest.json'), '{"m":1}\n')
   write(path.join(site, '404.html'), '<p>no</p>')
   write(path.join(site, 'LICENSE.txt'), 'public domain')
-  write(path.join(site, 'colorado/158_-425/t1-4.json.gz'), Buffer.from([31, 139, 8, 0, 1, 2, 3]))
+  write(path.join(site, 'cells/158_-425/t1-4.json.gz'), Buffer.from([31, 139, 8, 0, 1, 2, 3]))
+  write(path.join(site, 'tiles/19_-54/index.json'), '{"t":1}\n')
+  write(path.join(site, 'tiles/19_-54/overview.json.gz'), Buffer.from([31, 139, 8, 0, 4, 5]))
   write(path.join(state, 'kept.json'), JSON.stringify(kept))
   write(path.join(state, 'checks.json'), JSON.stringify(checks))
   write(path.join(state, '_headers'), '/*\n  X-Content-Type-Options: nosniff\n')
@@ -56,16 +58,17 @@ test('the Pages hash of a file', () => {
 
 // Requirement: Files keep their content types
 test('content types are the ones wrangler gave', () => {
-  assert.equal(contentType('colorado/158_-425/t1-4.json.gz'), 'application/gzip')
+  assert.equal(contentType('cells/158_-425/t1-4.json.gz'), 'application/gzip')
   assert.equal(contentType('manifest.json'), 'application/json')
   assert.equal(contentType('404.html'), 'text/html')
   assert.equal(contentType('LICENSE.txt'), 'text/plain')
   assert.throws(() => contentType('index.js'), /content type/)
 })
 
-// Requirement: The site lists its files' hashes ("A deployed site")
+// Requirement: The site lists its files' hashes (its form; "A deployed site"'s whole list is in
+// tests/test_grid.py)
 test('hash writes hashes.json, the deployment manifest and the upload list', () => {
-  const kept = { '/colorado/158_-425/t0-3m.json.gz': { hash: 'a'.repeat(32), bytes: 1234 } }
+  const kept = { '/cells/158_-425/t0-3m.json.gz': { hash: 'a'.repeat(32), bytes: 1234 } }
   const f = fixture({ kept })
   runHash({ site: f.site, state: f.state })
   const hashes = JSON.parse(fs.readFileSync(path.join(f.site, 'hashes.json')))
@@ -75,17 +78,19 @@ test('hash writes hashes.json, the deployment manifest and the upload list', () 
   const want = {
     '/404.html': pagesHash(Buffer.from('<p>no</p>'), '404.html'),
     '/LICENSE.txt': pagesHash(Buffer.from('public domain'), 'LICENSE.txt'),
-    '/colorado/158_-425/t0-3m.json.gz': 'a'.repeat(32),
-    '/colorado/158_-425/t1-4.json.gz': pagesHash(fs.readFileSync(path.join(f.site, 'colorado/158_-425/t1-4.json.gz')), 't1-4.json.gz'),
-    '/manifest.json': pagesHash(Buffer.from('{"m":1}\n'), 'manifest.json')
+    '/cells/158_-425/t0-3m.json.gz': 'a'.repeat(32),
+    '/cells/158_-425/t1-4.json.gz': pagesHash(fs.readFileSync(path.join(f.site, 'cells/158_-425/t1-4.json.gz')), 't1-4.json.gz'),
+    '/manifest.json': pagesHash(Buffer.from('{"m":1}\n'), 'manifest.json'),
+    '/tiles/19_-54/index.json': pagesHash(Buffer.from('{"t":1}\n'), 'index.json'),
+    '/tiles/19_-54/overview.json.gz': pagesHash(fs.readFileSync(path.join(f.site, 'tiles/19_-54/overview.json.gz')), 'overview.json.gz')
   }
   assert.deepEqual(hashes.files, want)
   const deployment = JSON.parse(fs.readFileSync(path.join(f.state, 'deployment.json')))
   assert.deepEqual(deployment, { ...want, '/hashes.json': pagesHash(fs.readFileSync(path.join(f.site, 'hashes.json')), 'hashes.json') })
   const upload = JSON.parse(fs.readFileSync(path.join(f.state, 'upload.json')))
-  const kept0 = upload.find(u => u.path === '/colorado/158_-425/t0-3m.json.gz')
-  assert.deepEqual(kept0, { path: '/colorado/158_-425/t0-3m.json.gz', hash: 'a'.repeat(32), bytes: 1234, local: false, contentType: 'application/gzip' })
-  assert.equal(upload.filter(u => u.local).length, 5)
+  const kept0 = upload.find(u => u.path === '/cells/158_-425/t0-3m.json.gz')
+  assert.deepEqual(kept0, { path: '/cells/158_-425/t0-3m.json.gz', hash: 'a'.repeat(32), bytes: 1234, local: false, contentType: 'application/gzip' })
+  assert.equal(upload.filter(u => u.local).length, 7)
 })
 
 test('the same site hashes to the same files', () => {
@@ -116,7 +121,7 @@ test('hash fails when a live manifest or tile index read isn\'t the one hashes.j
 
 // Requirement: The live hashes belong to the live manifest ("A `t1-4` file that doesn't match its hash")
 test('hash fails when a read-back file hashes to another value than listed', () => {
-  const t14 = '/colorado/158_-425/t1-4.json.gz'
+  const t14 = '/cells/158_-425/t1-4.json.gz'
   const bad = fixture({ checks: { readback: { [t14]: 'c'.repeat(32) }, live: [] } })
   assert.throws(() => runHash({ site: bad.site, state: bad.state }), /t1-4.json.gz/)
   const unlisted = fixture({ checks: { readback: { [t14]: null }, live: [] } })
@@ -183,10 +188,10 @@ function listTree (dir) {
 
 // Requirement: A deploy uploads only the files Cloudflare lacks ("Only new files")
 test('upload sends exactly the missing files, typed, then confirms every hash', async () => {
-  const f = fixture({ kept: { '/colorado/158_-425/t0-3m.json.gz': { hash: 'a'.repeat(32), bytes: 5 } } })
+  const f = fixture({ kept: { '/cells/158_-425/t0-3m.json.gz': { hash: 'a'.repeat(32), bytes: 5 } } })
   runHash({ site: f.site, state: f.state })
   const deployment = JSON.parse(fs.readFileSync(path.join(f.state, 'deployment.json')))
-  const want = [deployment['/manifest.json'], deployment['/colorado/158_-425/t1-4.json.gz']]
+  const want = [deployment['/manifest.json'], deployment['/cells/158_-425/t1-4.json.gz']]
   const cf = await fakeCloudflare({ missing: want })
   try {
     const jwt = jwtFile(f.root)
@@ -197,7 +202,7 @@ test('upload sends exactly the missing files, typed, then confirms every hash', 
     assert.deepEqual(sent.map(s => s.key).sort(), [...want].sort())
     const byKey = Object.fromEntries(sent.map(s => [s.key, s]))
     assert.equal(byKey[deployment['/manifest.json']].metadata.contentType, 'application/json')
-    assert.equal(byKey[deployment['/colorado/158_-425/t1-4.json.gz']].metadata.contentType, 'application/gzip')
+    assert.equal(byKey[deployment['/cells/158_-425/t1-4.json.gz']].metadata.contentType, 'application/gzip')
     assert.equal(Buffer.from(byKey[deployment['/manifest.json']].value, 'base64').toString(), '{"m":1}\n')
     assert.ok(sent.every(s => s.base64 === true))
     const upsert = cf.calls.find(c => c.url === '/client/v4/pages/assets/upsert-hashes')
@@ -213,7 +218,7 @@ test('upload sends exactly the missing files, typed, then confirms every hash', 
 // "A re-read leaves no file")
 test('a kept file Cloudflare lacks is read back, checked and uploaded, leaving no file', async () => {
   const bytes = cellFile('t0-3m')
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   const h = pagesHash(bytes, 't0-3m.json.gz')
   const f = fixture({ kept: { [keptPath]: { hash: h, bytes: bytes.length } } })
   runHash({ site: f.site, state: f.state })
@@ -234,7 +239,7 @@ test('a kept file Cloudflare lacks is read back, checked and uploaded, leaving n
 
 // Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file changed on the live site")
 test('a kept file that changed on the live site fails the upload', async () => {
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   const old = cellFile('t0-3m')
   const changed = Buffer.from(old)
   changed[changed.length - 5] ^= 1 // the same size, other bytes
@@ -252,7 +257,7 @@ test('a kept file that changed on the live site fails the upload', async () => {
 
 // Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file read back too large")
 test('a kept file read back over its manifest size fails the upload', async () => {
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   const f = fixture({ kept: { [keptPath]: { hash: 'd'.repeat(32), bytes: 4 } } })
   runHash({ site: f.site, state: f.state })
   const cf = await fakeCloudflare({ missing: ['d'.repeat(32)], live: { [keptPath]: Buffer.alloc(1_000_000, 7) } })
@@ -346,7 +351,7 @@ test('a missing hash no file of the deployment has fails the upload', async () =
 
 test('a re-read asks the live site for its bytes uncompressed', async () => {
   const bytes = cellFile('t0-3m')
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   const h = pagesHash(bytes, 't0-3m.json.gz')
   const f = fixture({ kept: { [keptPath]: { hash: h, bytes: bytes.length } } })
   runHash({ site: f.site, state: f.state })
@@ -365,7 +370,7 @@ test('a re-read asks the live site for its bytes uncompressed', async () => {
 
 // Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file re-read that isn't a cell file")
 test('a kept file re-read that hashes right but is no cell file of its path fails the upload', async () => {
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   for (const bad of [Buffer.from('not a gzip file at all'), cellFile('t1-4'), zlib.gzipSync(Buffer.from('{"format":"slope-cell","version":1,"cell":"158_-425","layer":"t0-3m","tiers":{},"x":1}'))]) {
     const f = fixture({ kept: { [keptPath]: { hash: pagesHash(bad, 't0-3m.json.gz'), bytes: bad.length } } })
     runHash({ site: f.site, state: f.state })
@@ -381,7 +386,7 @@ test('a kept file re-read that hashes right but is no cell file of its path fail
 
 // Requirement: Files read back from the live site are checked (the size the live manifest gives it)
 test('a kept file re-read shorter than its manifest size fails the upload', async () => {
-  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const keptPath = '/cells/158_-425/t0-3m.json.gz'
   const bytes = cellFile('t0-3m')
   const f = fixture({ kept: { [keptPath]: { hash: pagesHash(bytes, 't0-3m.json.gz'), bytes: bytes.length + 1 } } })
   runHash({ site: f.site, state: f.state })
