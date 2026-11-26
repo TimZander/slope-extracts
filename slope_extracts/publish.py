@@ -86,14 +86,15 @@ def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, worker
     into dest, each checked against its manifest size and the cell-file rules. Returns the paths."""
     jobs = []
     for r in manifest['regions']:
-        for c, e in r['cells'].items():
+        for c, e in site.region_cells(r).items():
             if (r['id'], c) in skip:
                 continue
-            for l in site.present_layers(e):  # a left-out layer has no file to read back
-                jobs.append((site.layer_path(r['id'], c, l), c, l, e['layers'][l]['bytes']))
+            # a split cell's quarter files; a left-out layer has no file to read back
+            for path, quarter, l, size in site.files_of(r['id'], c, e):
+                jobs.append((path, c, quarter, l, size))
 
     def one(job):
-        path, cell, layer, size = job
+        path, cell, quarter, layer, size = job
         status, body = get(f'{site_url}/{path}', MAX_FILE_BYTES)
         if status == 404:
             raise RuntimeError(f'the live site lacks {path}, which its manifest lists')
@@ -103,7 +104,7 @@ def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, worker
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, 'wb') as fh:
             fh.write(body)
-        check_cell_file(out, cell, layer)
+        check_cell_file(out, cell, layer, quarter=quarter)
         return path
 
     with concurrent.futures.ThreadPoolExecutor(workers) as ex:
@@ -171,7 +172,7 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
                 continue  # the cell failed; its previous files stay
             if os.path.islink(cdir) or not os.path.isdir(cdir):
                 raise RuntimeError(f'{label}: {cell} is not a folder')
-            # entry.json first: it says which layers have a file (a left-out t0-2m has none)
+            # entry.json first: it says whether the cell is split and which layers have a file
             ep = os.path.join(cdir, 'entry.json')
             if not os.path.lexists(ep) or not _regular(ep):
                 raise RuntimeError(f'{label}: {cell}/entry.json is not a regular file')
@@ -182,29 +183,45 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
                     entry = site.validate_entry(json.load(fh), cell)
             except (ValueError, json.JSONDecodeError) as e:
                 raise RuntimeError(f'{label}: {cell}/entry.json is not valid: {e!r}')
-            present = site.present_layers(entry)
-            want = {'entry.json', *(f'{l}.json.gz' for l in present)}
+            if site.is_split(entry):
+                # exactly entry.json and the four quarter folders, real folders, each its present layers
+                folders = {q: (os.path.join(cdir, q), site.present_layers(qe)) for q, qe in entry['quarters'].items()}
+                want = {'entry.json', *folders}
+            else:
+                folders = {None: (cdir, site.present_layers(entry))}
+                want = {'entry.json', *(f'{l}.json.gz' for l in folders[None][1])}
             have = set(os.listdir(cdir))
             if have != want:
                 raise RuntimeError(f'{label}: {cell} holds {sorted(have)!r}, not exactly {sorted(want)}')
             paths = {}
-            for l in present:
-                p = os.path.join(cdir, f'{l}.json.gz')
-                if not _regular(p):
-                    raise RuntimeError(f'{label}: {cell}/{l}.json.gz is not a regular file')
-                if os.path.getsize(p) > MAX_FILE_BYTES:
-                    raise RuntimeError(f'{label}: {cell}/{l}.json.gz is over the {MAX_FILE_BYTES}-byte limit')
-                check_cell_file(p, cell, l)
-                if entry['layers'][l]['bytes'] != os.path.getsize(p):
-                    raise RuntimeError(f'{label}: {cell}/{l} size differs from its entry')
-                paths[l] = p
+            for q, (fdir, present) in folders.items():
+                where = cell if q is None else f'{cell}/{q}'
+                if q is not None:
+                    if os.path.islink(fdir) or not os.path.isdir(fdir):
+                        raise RuntimeError(f'{label}: {where} is not a folder')
+                    qwant = {f'{l}.json.gz' for l in present}
+                    qhave = set(os.listdir(fdir))
+                    if qhave != qwant:
+                        raise RuntimeError(f'{label}: {where} holds {sorted(qhave)!r}, not exactly {sorted(qwant)}')
+                sizes = (entry['layers'] if q is None else entry['quarters'][q]['layers'])
+                for l in present:
+                    p = os.path.join(fdir, f'{l}.json.gz')
+                    if not _regular(p):
+                        raise RuntimeError(f'{label}: {where}/{l}.json.gz is not a regular file')
+                    if os.path.getsize(p) > MAX_FILE_BYTES:
+                        raise RuntimeError(f'{label}: {where}/{l}.json.gz is over the {MAX_FILE_BYTES}-byte limit')
+                    check_cell_file(p, cell, l, quarter=q)
+                    if sizes[l]['bytes'] != os.path.getsize(p):
+                        raise RuntimeError(f'{label}: {where}/{l} size differs from its entry')
+                    paths[(q, l)] = p
             out[(region, cell)] = (entry, paths)
     return out
 
 
-def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON):
-    """The file is gzip JSON in the slope-cell form, for this cell and layer: exactly its keys, each
-    tier only its classes, rings of integers whose points lie in the cell."""
+def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON, quarter=None):
+    """The file is gzip JSON in the slope-cell form, for this cell (and quarter, of a split cell) and
+    layer: exactly its keys, each tier only its classes, rings of integers whose points lie in the cell
+    (or quarter)."""
     try:
         with gzip.open(path, 'rb') as fh:
             raw = fh.read(max_json + 1)
@@ -213,14 +230,16 @@ def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON):
         doc = json.loads(raw)
     except (OSError, EOFError, ValueError) as e:
         raise RuntimeError(f'{cell}/{layer} is not gzip JSON: {e!r}')
-    if (not isinstance(doc, dict) or set(doc) != {'format', 'version', 'cell', 'layer', 'tiers'}
-            or doc['format'] != 'slope-cell' or doc['version'] != 1 or doc['cell'] != cell or doc['layer'] != layer):
-        raise RuntimeError(f'{cell}/{layer} is not the slope-cell file for this cell and layer')
+    keys = {'format', 'version', 'cell', 'layer', 'tiers'} | ({'quarter'} if quarter is not None else set())
+    if (not isinstance(doc, dict) or set(doc) != keys
+            or doc['format'] != 'slope-cell' or doc['version'] != 1 or doc['cell'] != cell or doc['layer'] != layer
+            or (quarter is not None and doc['quarter'] != quarter)):
+        raise RuntimeError(f'{cell}/{layer} is not the slope-cell file for this cell, quarter and layer')
     tiers = doc['tiers']
     allowed = {'0'} if layer.startswith('t0') else {'1', '2', '3', '4'}
     if not isinstance(tiers, dict) or not set(tiers) <= allowed:
         raise RuntimeError(f'{cell}/{layer} has tiers {sorted(tiers) if isinstance(tiers, dict) else tiers!r}')
-    south, west, north, east = grid.cell_bounds(cell)
+    south, west, north, east = grid.cell_bounds(cell) if quarter is None else grid.quarter_bounds(cell, quarter)
     y0, y1 = grid.to_units(south) - 2, grid.to_units(north) + 2
     x0, x1 = grid.to_units(west) - 2, grid.to_units(east) + 2
     for t, classes in tiers.items():
@@ -242,7 +261,7 @@ def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON):
                             y += ring[i]
                             x += ring[i + 1]
                         if not (y0 <= y <= y1 and x0 <= x <= x1):
-                            raise RuntimeError(f'{cell}/{layer}: a point lies outside the cell')
+                            raise RuntimeError(f'{cell}/{layer}: a point lies outside the {"cell" if quarter is None else "quarter"}')
 
 
 def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None, site_url=SITE_URL, get=http_get,
@@ -264,7 +283,7 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
     for r in (previous or {}).get('regions', []):
         if r['id'] in cells:
             covered = set(site.coverage(next(x for x in regions if x['id'] == r['id'])))
-            cells[r['id']].update({c: e for c, e in r['cells'].items() if c in covered})
+            cells[r['id']].update({c: e for c, e in site.region_cells(r).items() if c in covered})
     for (region, cell), (entry, _p) in built.items():
         cells[region][cell] = site.manifest_entry(entry)
     manifest = site.build_manifest(regions, cells)
@@ -273,22 +292,23 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
         raise RuntimeError(f'the site would hold {len(files)} files, over the {site.MAX_SITE_FILES}-file limit')
     os.makedirs(out_dir)
     if previous is not None:
-        keep = {'regions': [dict(r, cells={c: e for c, e in r['cells'].items() if c in cells.get(r['id'], {})})
-                            for r in manifest['regions']]}
-        fetched = fetch_previous(keep, out_dir, set(built), site_url, get)
-        live_cells = sum(len(r['cells']) for r in previous['regions'])
-        new_cells = sum(len(r['cells']) for r in manifest['regions'])
+        fetched = fetch_previous(manifest, out_dir, set(built), site_url, get)
+        live_cells = sum(len(site.region_cells(r)) for r in previous['regions'])
+        new_cells = sum(len(site.region_cells(r)) for r in manifest['regions'])
         if new_cells < live_cells:
             raise RuntimeError(f'the new manifest lists {new_cells} cells, fewer than the live {live_cells}')
         log(f'{len(fetched)} file(s) read back from the live site')
     for (region, cell), (_e, paths) in built.items():
-        for l, p in paths.items():
-            dst = os.path.join(out_dir, site.layer_path(region, cell, l))
+        for (q, l), p in paths.items():
+            dst = os.path.join(out_dir, site.layer_path(region, cell, l) if q is None else site.quarter_path(region, cell, q, l))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(p, dst)
     # Each overview from the checked cell files now in out_dir; a live overview is never read back.
     for r in manifest['regions']:
-        paths = [os.path.join(out_dir, site.layer_path(r['id'], c, 't1-4')) for c in r['coverage'] if c in r['cells']]
+        # cells in coverage order; a split cell's four t1-4 quarters, row then column order
+        cells_r = site.region_cells(r)
+        paths = [os.path.join(out_dir, f[0]) for c in r['coverage'] if c in cells_r
+                 for f in site.files_of(r['id'], c, cells_r[c]) if f[2] == 't1-4']
         doc = overview.build(r['id'], paths)
         if doc is not None:
             data = overview.dumps(doc)

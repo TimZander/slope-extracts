@@ -13,7 +13,7 @@ DILLON, OTHER = '158_-425', '158_-424'
 def entry(cell, recipe=1):
     return {'cell': cell, 'recipe': recipe, 'built': '2026-11-23', 'sources': {'lidar': 1.0, 'dem10m': 0.0, 'none': 0.0},
             'projects': ['CO_Central_Western_2016'],
-            'layers': {l: {'bytes': 0, 'tiers': {}} for l in site.LAYERS}}
+            'layers': {l: {'bytes': 9, 'tiers': {}} for l in site.LAYERS}}
 
 
 # --- regions and plan -------------------------------------------------------------------------
@@ -950,7 +950,10 @@ def test_a_live_quarter_from_another_quarter_fails_the_deploy(live, tmp_path):
     _c, out = run(tmp_path, live)
     live.publish(out)
     a, b = (f'colorado/{DILLON}/{q}/t0-3m.json.gz' for q in QUARTERS[:2])
-    live.files[a] = live.files[b]  # the same size: a swap only the quarter check sees
+    live.files[a] = live.files[b]  # and its size in the manifest: a swap only the quarter check sees
+    m = json.loads(live.files['manifest.json'])
+    m['regions'][0]['quartered'][DILLON]['quarters'][QUARTERS[0]]['layers']['t0-3m']['bytes'] = len(live.files[b])
+    live.files['manifest.json'] = json.dumps(m).encode()
     artifact(tmp_path, 0, [OTHER])
     with pytest.raises(RuntimeError, match='not the slope-cell file'):
         run(tmp_path, live, 'site2')
@@ -983,9 +986,11 @@ def test_fewer_cells_counts_split_cells_too(live, tmp_path):
     live.publish(out)
     m = json.loads(live.files['manifest.json'])
     # a live manifest listing a split cell outside the regions list: the new manifest would drop it
-    m['regions'][0]['quartered']['0_0'] = m['regions'][0]['quartered'][DILLON]
+    stray = dict(m['regions'][0]['quartered'][DILLON])
+    stray['quarters'] = dict(zip(grid.quarters('0_0'), stray['quarters'].values()))
+    m['regions'][0]['quartered']['0_0'] = stray
     live.files['manifest.json'] = json.dumps(m).encode()
-    artifact(tmp_path, 0, [OTHER])
+    artifact(tmp_path, 0, [DILLON])  # 1 cell in the new manifest, 2 in the live one
     with pytest.raises(RuntimeError, match='fewer than the live'):
         run(tmp_path, live, 'site2')
 
@@ -1142,3 +1147,15 @@ def test_the_file_count_counts_a_split_cells_files(live, tmp_path, monkeypatch):
     monkeypatch.setattr(site, 'MAX_SITE_FILES', 19)
     _c, out = run(tmp_path, live, 'site2')
     assert sum(1 for p in out.rglob('*') if p.is_file()) == 19
+
+
+# CLAUDE.md: the plan and deploy jobs use only the standard library (the deploy job holds the token);
+# the quarter cut (shapely) stays in the build job's code.
+def test_the_plan_and_deploy_code_imports_no_third_party_package():
+    import subprocess
+    import sys
+    code = ('import sys; import slope_extracts.site, slope_extracts.publish, slope_extracts.overview; '
+            'print(sorted({m.split(".")[0] for m in sys.modules} & {"numpy", "rasterio", "shapely"}))')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run([sys.executable, '-c', code], cwd=root, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == '[]'

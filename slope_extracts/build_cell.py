@@ -2,9 +2,11 @@
 
     python -m slope_extracts.build_cell <cell-id> --out <dir> [--dem <GeoTIFF> ...]
 
-Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json. A t0-2m layer over the
-deploy job's limits is left out (no file; its entry is LEFT_OUT); any other layer over them fails the cell,
-and a failed cell leaves no folder. With --dem, the given
+Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json. When any of those files
+would be over the deploy job's limits, the cell is split instead: <dir>/<cell>/<quarter>/<layer>.json.gz
+for its four 0.125-degree quarters, each the cell's polygons clipped to the quarter. A quarter's t0-2m
+still over a limit is left out (no file; its entry is LEFT_OUT); a quarter's other layer over one fails
+the cell, and a failed cell leaves no folder. With --dem, the given
 files are the only elevation source (tests and local runs); without it the cell reads USGS 3DEP
 lidar found through the TNM Access API, and the ~10 m DEM where lidar has a gap.
 
@@ -76,56 +78,91 @@ def build(cell_id, out_dir, dem_paths=None, log=print, today=None):
         low[p['tier']] = polys
     del z3
 
-    docs = {
-        't0-3m': cellfile.build(cell_id, 't0-3m', {0: {**bands3, **cliffs}}),
-        't0-2m': cellfile.build(cell_id, 't0-2m', {0: {**bands2, **cliffs}}),
-        't1-4': cellfile.build(cell_id, 't1-4', low),
+    tiers = {
+        't0-3m': {0: {**bands3, **cliffs}},
+        't0-2m': {0: {**bands2, **cliffs}},
+        't1-4': low,
     }
     cell_dir = os.path.join(out_dir, cell_id)
     os.makedirs(cell_dir, exist_ok=True)
     try:
-        entry = _write(cell_id, cell_dir, docs, fractions, projects, today, log)
+        encoded = {name: _encode(cellfile.build(cell_id, name, t)) for name, t in tiers.items()}
+        over = {name: e[2] for name, e in encoded.items() if e[2]}
+        if over:
+            del encoded  # nothing whole-cell reaches the disk
+            log(f'::warning::cell {cell_id}: written as four quarters: ' +
+                '; '.join(f'{n} is {" and ".join(o)}' for n, o in over.items()))
+            body = {'quarters': _write_quarters(cell_id, cell_dir, tiers, log)}
+        else:
+            body = {'layers': _write_whole(cell_dir, encoded)}
+        entry = {
+            'cell': cell_id,
+            'recipe': recipe.RECIPE,
+            'built': (today or datetime.date.today()).isoformat(),
+            'sources': fractions,
+            'projects': projects,
+            **body,
+        }
+        with open(os.path.join(cell_dir, 'entry.json'), 'w') as fh:
+            json.dump(entry, fh, indent=1)
+            fh.write('\n')
     except BaseException:
         # a failed cell leaves no folder, so the deploy job keeps its previous files
         shutil.rmtree(cell_dir, ignore_errors=True)
         raise
-    log(f'{cell_id}: done in {time.monotonic() - t_start:.0f} s; ' +
-        ', '.join(f'{n} {l["bytes"] / 1e6:.2f} MB' for n, l in entry['layers'].items()))
+    if 'layers' in entry:
+        sizes = ', '.join(f'{n} {l["bytes"] / 1e6:.2f} MB' for n, l in entry['layers'].items())
+    else:
+        sizes = 'quarters ' + '; '.join(f'{q}: ' + ', '.join(f'{n} {l["bytes"] / 1e6:.2f} MB' for n, l in v['layers'].items())
+                                        for q, v in entry['quarters'].items())
+    log(f'{cell_id}: done in {time.monotonic() - t_start:.0f} s; {sizes}')
     return entry
 
 
-def _write(cell_id, cell_dir, docs, fractions, projects, today, log):
+def _encode(doc):
+    """(JSON, gzip bytes, [how it is over a limit]) of a layer document."""
+    raw = cellfile.json_bytes(doc)
+    data = cellfile.compress(raw)
+    over = []
+    if len(data) > MAX_FILE_BYTES:
+        over.append(f'{len(data)} bytes, over the {MAX_FILE_BYTES}-byte limit per file')
+    if len(raw) > MAX_JSON_BYTES:
+        over.append(f'{len(raw)} bytes of JSON, over the {MAX_JSON_BYTES}-byte limit unpacked')
+    return raw, data, over
+
+
+def _write_whole(cell_dir, encoded):
     layers = {}
-    for name, doc in docs.items():
-        raw = cellfile.json_bytes(doc)
-        data = cellfile.compress(raw)
-        over = []
-        if len(data) > MAX_FILE_BYTES:
-            over.append(f'{len(data)} bytes, over the {MAX_FILE_BYTES}-byte limit per file')
-        if len(raw) > MAX_JSON_BYTES:
-            over.append(f'{len(raw)} bytes of JSON, over the {MAX_JSON_BYTES}-byte limit unpacked')
-        if over:
-            if name != OPTIONAL_LAYER:
-                raise RuntimeError(f'{cell_id}/{name} is ' + ' and '.join(over))
-            log(f'::warning::cell {cell_id}: layer {name} left out: it is {" and ".join(over)}; '
-                f'the cell is published without it')
-            layers[name] = copy.deepcopy(LEFT_OUT)
-            continue
+    for name, (raw, data, _over) in encoded.items():
         with open(os.path.join(cell_dir, f'{name}.json.gz'), 'wb') as fh:
             fh.write(data)
-        layers[name] = {'bytes': len(data), 'tiers': cellfile.stats(doc)}
-    entry = {
-        'cell': cell_id,
-        'recipe': recipe.RECIPE,
-        'built': (today or datetime.date.today()).isoformat(),
-        'sources': fractions,
-        'projects': projects,
-        'layers': layers,
-    }
-    with open(os.path.join(cell_dir, 'entry.json'), 'w') as fh:
-        json.dump(entry, fh, indent=1)
-        fh.write('\n')
-    return entry
+        layers[name] = {'bytes': len(data), 'tiers': cellfile.stats(json.loads(raw))}
+    return layers
+
+
+def _write_quarters(cell_id, cell_dir, tiers, log):
+    """Each layer's polygons clipped to the four quarters, written per quarter; {quarter: {"layers": ...}}."""
+    qs = grid.quarters(cell_id)
+    out = {q: {'layers': {}} for q in qs}
+    for q in qs:
+        os.makedirs(os.path.join(cell_dir, q))
+    for name in recipe.LAYERS:
+        cut = {t: classes.clip_to_quarters(cell_id, by_class) for t, by_class in tiers[name].items()}
+        for q in qs:
+            doc = cellfile.build(cell_id, name, {t: c[q] for t, c in cut.items()}, quarter=q)
+            raw, data, over = _encode(doc)
+            if over:
+                if name != OPTIONAL_LAYER:
+                    raise RuntimeError(f'{cell_id}/{q}/{name} is ' + ' and '.join(over))
+                log(f'::warning::cell {cell_id}: quarter {q}: layer {name} left out: it is {" and ".join(over)}; '
+                    f'the quarter is published without it')
+                out[q]['layers'][name] = copy.deepcopy(LEFT_OUT)
+                continue
+            with open(os.path.join(cell_dir, q, f'{name}.json.gz'), 'wb') as fh:
+                fh.write(data)
+            out[q]['layers'][name] = {'bytes': len(data), 'tiers': cellfile.stats(doc)}
+        del cut
+    return out
 
 
 def _http_exists(url):
