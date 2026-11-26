@@ -1481,3 +1481,32 @@ def test_the_first_run_after_this_change_writes_hashes_for_both_cells(live, tmp_
     assert r.returncode == 0, r.stderr
     files = json.loads((out2 / 'hashes.json').read_text())['files']
     assert {f'/colorado/{c}/{l}.json.gz' for c in (DILLON, OTHER) for l in site.LAYERS} <= set(files)
+
+
+# deploy/check_cell.py: the cell-file checks for a file the upload step reads back (bytes on stdin).
+# Requirement: Files read back from the live site are checked; A deploy uploads only the files Cloudflare lacks
+def check_cell_cli(path, data):
+    import subprocess
+    import sys
+    script = pathlib.Path(__file__).resolve().parent.parent / 'deploy' / 'check_cell.py'
+    return subprocess.run([sys.executable, '-I', str(script), path], input=data, capture_output=True)
+
+
+def test_the_read_back_checker_accepts_a_cell_file_of_its_path():
+    data = cellfile.dumps(cellfile.build(DILLON, 't0-3m', {}))
+    assert check_cell_cli(f'/colorado/{DILLON}/t0-3m.json.gz', data).returncode == 0
+    q = cellfile.dumps(cellfile.build(DILLON, 't1-4', {}, quarter=QUARTERS[1]))
+    assert check_cell_cli(f'/colorado/{DILLON}/{QUARTERS[1]}/t1-4.json.gz', q).returncode == 0
+
+
+@pytest.mark.parametrize('path, data', [
+    (f'/colorado/{DILLON}/t0-3m.json.gz', b'not gzip'),
+    (f'/colorado/{DILLON}/t0-3m.json.gz', cellfile.dumps(cellfile.build(OTHER, 't0-3m', {}))),
+    (f'/colorado/{DILLON}/t1-4.json.gz', cellfile.dumps(cellfile.build(DILLON, 't0-3m', {}))),
+    (f'/colorado/{DILLON}/{QUARTERS[1]}/t1-4.json.gz', cellfile.dumps(cellfile.build(DILLON, 't1-4', {}, quarter=QUARTERS[0]))),
+    ('/manifest.json', b'{}'), (f'/../{DILLON}/t0-3m.json.gz', b''), (f'/colorado/{DILLON}/x.json.gz', b''),
+    (f'/colorado/{DILLON}/999_0/t1-4.json.gz', b''),
+])
+def test_the_read_back_checker_refuses_anything_else(path, data):
+    r = check_cell_cli(path, data)
+    assert r.returncode != 0 and r.stdout == b''

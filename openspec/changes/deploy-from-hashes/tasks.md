@@ -18,4 +18,4 @@
 
 - [x] 3.1 ADRs: deploying from hashes (supersedes ADR 0003's deploy mechanics), the side file, the token in two curl calls, wrangler replaced by `blake3-wasm`
 - [x] 3.2 CLAUDE.md's token rule, README, docs
-- [ ] 3.3 Security review and attack tests of the deploy job
+- [x] 3.3 Security review and attack tests of the deploy job

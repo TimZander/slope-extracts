@@ -13,6 +13,7 @@
 // Cloudflare token goes. This follows the upload wrangler 3.114.17 makes (src/pages/upload.tsx).
 //
 // Only blake3-wasm, from deploy/package-lock.json, is imported; the rest is Node's own.
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -144,8 +145,12 @@ async function apiCall (api, jwt, route, body, retryDelayMs, timeoutMs) {
   }
 }
 
-/** A kept file read back from the live site: at most its manifest size, uncompressed (as the Python
- *  reader asks), hashed before it is used. A network error or 5xx, body included, is retried. */
+const CHECKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'check_cell.py')
+
+/** A kept file read back from the live site, uncompressed (as the Python reader asks): it must be its
+ *  manifest size, hash to its hashes.json entry and pass the deploy's cell-file checks (the live site
+ *  is hostile: its manifest and hashes.json could agree on any bytes). A network error or 5xx, body
+ *  included, is retried. */
 async function readBack (siteUrl, item, retryDelayMs, timeoutMs) {
   for (let attempt = 1; ; attempt++) {
     let data
@@ -155,7 +160,10 @@ async function readBack (siteUrl, item, retryDelayMs, timeoutMs) {
       if (e.retry && attempt < ATTEMPTS) { await sleep(retryDelayMs * 2 ** attempt); continue }
       throw e
     }
+    if (data.length !== item.bytes) throw new Error(`${item.path} on the live site is ${data.length} bytes, not its ${item.bytes}`)
     if (pagesHash(data, item.path) !== item.hash) throw new Error(`${item.path} changed on the live site: it doesn't hash to its hashes.json entry`)
+    const check = spawnSync('python3', ['-I', CHECKER, item.path], { input: data, stdio: ['pipe', 'ignore', 'ignore'], timeout: 120_000 })
+    if (check.status !== 0) throw new Error(`${item.path} read back fails the cell-file checks`)
     return data
   }
 }

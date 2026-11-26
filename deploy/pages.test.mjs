@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync, spawn } from 'node:child_process'
+import zlib from 'node:zlib'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -15,6 +16,12 @@ import { pagesHash, contentType, runHash, runUpload } from './pages.mjs'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SCRIPT = path.join(HERE, 'pages.mjs')
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.the-upload-jwt.signature'
+
+/** A valid slope-cell file (no polygons) of cell 158_-425 and `layer`, gzip; `extra` varies the bytes. */
+function cellFile (layer, extra = 0) {
+  const doc = { format: 'slope-cell', version: 1, cell: '158_-425', layer, tiers: layer.startsWith('t0') ? { 0: { 30: [] } } : {} }
+  return zlib.gzipSync(Buffer.from(JSON.stringify(doc) + ' '.repeat(extra)))
+}
 
 function tmp () {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pages-test-'))
@@ -195,8 +202,8 @@ test('upload sends exactly the missing files, typed, then confirms every hash', 
 
 // Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file Cloudflare no longer holds",
 // "A re-read leaves no file")
-test('a kept file Cloudflare lacks is read back, hash-checked and uploaded, leaving no file', async () => {
-  const bytes = Buffer.from('kept bytes')
+test('a kept file Cloudflare lacks is read back, checked and uploaded, leaving no file', async () => {
+  const bytes = cellFile('t0-3m')
   const keptPath = '/colorado/158_-425/t0-3m.json.gz'
   const h = pagesHash(bytes, 't0-3m.json.gz')
   const f = fixture({ kept: { [keptPath]: { hash: h, bytes: bytes.length } } })
@@ -207,7 +214,7 @@ test('a kept file Cloudflare lacks is read back, hash-checked and uploaded, leav
     await runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} })
     const sent = cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').flatMap(c => JSON.parse(c.body))
     assert.deepEqual(sent.map(s => s.key), [h])
-    assert.equal(Buffer.from(sent[0].value, 'base64').toString(), 'kept bytes')
+    assert.deepEqual(Buffer.from(sent[0].value, 'base64'), bytes)
     const siteGet = cf.calls.find(c => c.url === `/site${keptPath}`)
     assert.equal(siteGet.auth, undefined)
     assert.deepEqual(listTree(f.root), before)
@@ -219,10 +226,13 @@ test('a kept file Cloudflare lacks is read back, hash-checked and uploaded, leav
 // Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file changed on the live site")
 test('a kept file that changed on the live site fails the upload', async () => {
   const keptPath = '/colorado/158_-425/t0-3m.json.gz'
-  const f = fixture({ kept: { [keptPath]: { hash: pagesHash(Buffer.from('old!'), 't0-3m.json.gz'), bytes: 4 } } })
+  const old = cellFile('t0-3m')
+  const changed = Buffer.from(old)
+  changed[changed.length - 5] ^= 1 // the same size, other bytes
+  const f = fixture({ kept: { [keptPath]: { hash: pagesHash(old, 't0-3m.json.gz'), bytes: old.length } } })
   runHash({ site: f.site, state: f.state })
   const kept = JSON.parse(fs.readFileSync(path.join(f.state, 'kept.json')))[keptPath].hash
-  const cf = await fakeCloudflare({ missing: [kept], live: { [keptPath]: Buffer.from('new!') } })
+  const cf = await fakeCloudflare({ missing: [kept], live: { [keptPath]: changed } })
   try {
     await assert.rejects(runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} }), /changed/)
     assert.equal(cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').length, 0)
@@ -326,7 +336,7 @@ test('a missing hash no file of the deployment has fails the upload', async () =
 })
 
 test('a re-read asks the live site for its bytes uncompressed', async () => {
-  const bytes = Buffer.from('kept bytes')
+  const bytes = cellFile('t0-3m')
   const keptPath = '/colorado/158_-425/t0-3m.json.gz'
   const h = pagesHash(bytes, 't0-3m.json.gz')
   const f = fixture({ kept: { [keptPath]: { hash: h, bytes: bytes.length } } })
@@ -341,5 +351,35 @@ test('a re-read asks the live site for its bytes uncompressed', async () => {
   } finally {
     cf.server.close()
     site.close()
+  }
+})
+
+// Requirement: A deploy uploads only the files Cloudflare lacks ("A kept file re-read that isn't a cell file")
+test('a kept file re-read that hashes right but is no cell file of its path fails the upload', async () => {
+  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  for (const bad of [Buffer.from('not a gzip file at all'), cellFile('t1-4'), zlib.gzipSync(Buffer.from('{"format":"slope-cell","version":1,"cell":"158_-425","layer":"t0-3m","tiers":{},"x":1}'))]) {
+    const f = fixture({ kept: { [keptPath]: { hash: pagesHash(bad, 't0-3m.json.gz'), bytes: bad.length } } })
+    runHash({ site: f.site, state: f.state })
+    const cf = await fakeCloudflare({ missing: [pagesHash(bad, 't0-3m.json.gz')], live: { [keptPath]: bad } })
+    try {
+      await assert.rejects(runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} }), /cell-file checks/)
+      assert.equal(cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').length, 0)
+    } finally {
+      cf.server.close()
+    }
+  }
+})
+
+// Requirement: Files read back from the live site are checked (the size the live manifest gives it)
+test('a kept file re-read shorter than its manifest size fails the upload', async () => {
+  const keptPath = '/colorado/158_-425/t0-3m.json.gz'
+  const bytes = cellFile('t0-3m')
+  const f = fixture({ kept: { [keptPath]: { hash: pagesHash(bytes, 't0-3m.json.gz'), bytes: bytes.length + 1 } } })
+  runHash({ site: f.site, state: f.state })
+  const cf = await fakeCloudflare({ missing: [pagesHash(bytes, 't0-3m.json.gz')], live: { [keptPath]: bytes } })
+  try {
+    await assert.rejects(runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} }), /not its/)
+  } finally {
+    cf.server.close()
   }
 })

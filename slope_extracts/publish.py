@@ -265,8 +265,16 @@ def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON, quarter=None):
     """The file is gzip JSON in the slope-cell form, for this cell (and quarter, of a split cell) and
     layer: exactly its keys, each tier only its classes, rings of integers whose points lie in the cell
     (or quarter)."""
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    check_cell_bytes(data, cell, layer, max_json, quarter)
+
+
+def check_cell_bytes(data, cell, layer, max_json=MAX_CELL_JSON, quarter=None):
+    """check_cell_file on a file's bytes (the upload step's re-reads, through deploy/check_cell.py)."""
+    import io
     try:
-        with gzip.open(path, 'rb') as fh:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as fh:
             raw = fh.read(max_json + 1)
         if len(raw) > max_json:
             raise RuntimeError(f'{cell}/{layer} unpacks to more than {max_json} bytes')
