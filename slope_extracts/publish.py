@@ -89,7 +89,20 @@ def _manifest_doc(site_url, get, first_deploy, keep):
     return True, doc
 
 
-def fetch_live(site_url=SITE_URL, get=http_get, first_deploy=False, keep=None, workers=4):
+def get_retried(get, url, limit, attempts=3, delay=1.0):
+    """A read from the live site, made again (at most twice) after a network error or a 5xx answer."""
+    import time
+    for attempt in range(1, attempts + 1):
+        try:
+            return get(url, limit)
+        except (RuntimeError, OSError) as e:
+            transient = isinstance(e, OSError) or re.search(r' answered 5\d\d$', str(e))
+            if not transient or attempt == attempts:
+                raise
+            time.sleep(delay * 2 ** attempt)
+
+
+def fetch_live(site_url=SITE_URL, get=http_get, first_deploy=False, keep=None, workers=4, retry_delay=1.0):
     """The live site as the plan and deploy read it, or None when it has none yet:
     {'version': 1 or 2, 'manifest': doc, 'cells': {cell: entry}} and, for version 1, 'v1_paths'
     ({cell: region it is read from}), for version 2, 'tiles' ({tile: index}). Every file is checked;
@@ -109,7 +122,7 @@ def fetch_live(site_url=SITE_URL, get=http_get, first_deploy=False, keep=None, w
         raise RuntimeError(f'the live manifest is not valid: {e}')
 
     def one(t):
-        status, body = get(f'{site_url}/{site.tile_index_path(t)}', MAX_MANIFEST_BYTES)
+        status, body = get_retried(get, f'{site_url}/{site.tile_index_path(t)}', MAX_MANIFEST_BYTES, delay=retry_delay)
         if status != 200:
             raise ValueError(f'{site.tile_index_path(t)} answered {status}')
         if len(body) != doc['tiles'][t]['indexBytes']:

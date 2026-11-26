@@ -101,3 +101,8 @@ switch; so the reader's version 2 must be proven before this merges.
   polygons is invalid" also caught version 1 entries the first run turns empty; now build-job and tile
   index entries only), 1 should-fix (two scenarios now say the manifest is version 2), 4 consider (all
   taken).
+- Conformance review, round 1 (2026-11-26): 4 hard fails, all tests the port of the region tests had
+  dropped (the plan on a version 1 site, a split cell's left-out quarter, the yearly refresh, live
+  split-entry attacks); restored and seen to catch their mutations. 3 soft fails: test citations fixed;
+  an area's `tiles` now checked (tile ids the manifest lists, in order); tile-index reads retried twice
+  on a network error or 5xx, as decision 7 says.

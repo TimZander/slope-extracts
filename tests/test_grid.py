@@ -527,3 +527,80 @@ def test_each_path_matches_one_cache_rule(path, age):
 
 def test_no_rule_for_regions_is_left():
     assert ':region' not in site.HEADERS
+
+
+# --- conformance review round 1: scenarios the port left untested --------------------------------
+
+# Requirement: A run builds missing and stale cells ("The first run on the grid")
+def test_plan_reads_a_version_1_sites_cells_as_built():
+    live = v1_site([DILLON])
+    got = fetch(live)
+    assert got['version'] == 1
+    assert site.plan(only([DILLON]), got, 1, 48, 3, today=TODAY) == []
+
+
+# Requirement: A run builds missing and stale cells ("A split cell with a quarter's 2 m layer left out")
+def test_plan_doesnt_rebuild_a_split_cell_with_a_quarter_left_out():
+    e = {k: v for k, v in entry(DILLON).items() if k != 'layers'}
+    e['quarters'] = {q: {'layers': dict(entry(DILLON)['layers'])} for q in grid.quarters(DILLON)}
+    e['quarters'][grid.quarters(DILLON)[0]]['layers']['t0-2m'] = dict(LEFT_OUT)
+    assert site.plan(only([DILLON]), live_with({DILLON: e}), 1, 48, 3, today=TODAY) == []
+
+
+# Requirement: A run builds missing and stale cells ("The yearly refresh")
+def test_plan_rebuilds_a_cell_older_than_the_refresh():
+    old = live_with({DILLON: entry(DILLON, built='2025-11-01')})
+    assert site.plan(only([DILLON]), old, 1, 48, 3, today=datetime.date(2026, 11, 23)) == [[DILLON]]
+    assert site.plan(only([DILLON]), old, 1, 48, 3, today=datetime.date(2026, 6, 1)) == []
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("Quarters out of order",
+# "A live entry with both forms", "The marker on a quarter's zoomed-out layer", "A quartered cell missing a quarter")
+@pytest.mark.parametrize('bad', ['out of order', 'both forms', 'marker on t1-4', 'three quarters', 'quarter key'])
+def test_an_invalid_live_quartered_entry_fails(tmp_path, bad):
+    live = published(tmp_path, cells=(), split=[DILLON])
+    qs = grid.quarters(DILLON)
+
+    def edit(d, t):
+        e = d['quartered'][DILLON]
+        if bad == 'out of order':
+            e['quarters'] = {qs[1]: e['quarters'][qs[1]], qs[0]: e['quarters'][qs[0]], qs[2]: e['quarters'][qs[2]], qs[3]: e['quarters'][qs[3]]}
+        elif bad == 'both forms':
+            e['layers'] = e['quarters'][qs[0]]['layers']
+        elif bad == 'marker on t1-4':
+            e['quarters'][qs[0]]['layers']['t1-4'] = dict(LEFT_OUT)
+        elif bad == 'three quarters':
+            del e['quarters'][qs[3]]
+        elif bad == 'quarter key':
+            e['quarters'][qs[0]]['href'] = 'x'
+    tamper_tile(live, edit)
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live)
+
+
+# Requirement: The live manifest is checked, with its tile indexes ("isn't of its form": an area's tiles)
+@pytest.mark.parametrize('tiles', [['../x'], ['19_-54', '18_-55'], ['0_0']])
+def test_an_areas_tiles_must_be_its_listed_tiles_in_order(tmp_path, tiles):
+    live = published(tmp_path)
+    m = json.loads(live.files['manifest.json'])
+    m['areas'][0]['tiles'] = tiles
+    live.files['manifest.json'] = json.dumps(m).encode()
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live)
+
+
+# Requirement: Waits on Cloudflare are bounded (a read from the live site is retried at most twice)
+def test_a_tile_index_read_is_retried_after_a_transient_error(tmp_path):
+    live = published(tmp_path)
+    failures = {'tiles/19_-54/index.json': 2}
+
+    def flaky(url, limit):
+        path = url.split('slope.test/', 1)[1]
+        if failures.get(path, 0) > 0:
+            failures[path] -= 1
+            raise RuntimeError(f'{url} answered 503')
+        return live.get(url, limit)
+    assert set(publish.fetch_live(URL, flaky, retry_delay=0)['cells']) == {DILLON}
+    failures['tiles/19_-54/index.json'] = 3
+    with pytest.raises(RuntimeError, match='503'):
+        publish.fetch_live(URL, flaky, retry_delay=0)

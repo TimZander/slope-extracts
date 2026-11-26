@@ -374,6 +374,12 @@ def validate_manifest_v2(m):
         _validate_area({k: a[k] for k in ('id', 'name', 'boxes')})
         if not isinstance(a['tiles'], list) or not all(isinstance(t, str) for t in a['tiles']):
             raise ValueError(f'area {a["id"]}: tiles must be a list of tile ids')
+        for t in a['tiles']:
+            grid.parse_tile(t)
+            if t not in m['tiles']:
+                raise ValueError(f'area {a["id"]}: tile {t} is not one the manifest lists')
+        if a['tiles'] != sorted(set(a['tiles']), key=grid.compare_key):
+            raise ValueError(f'area {a["id"]}: tiles must be each once, in row then column order')
     return m
 
 

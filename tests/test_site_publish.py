@@ -458,7 +458,7 @@ def test_the_plan_and_the_assembler_read_the_switch(tmp_path, monkeypatch, capsy
     assert seen == [True, True]
 
 
-# --- region overview (slope-overview) ------------------------------------------------------------
+# --- tile overviews (slope-overview version 2) -------------------------------------------------
 
 def overview_doc(out, tile=TILE):
     return cellfile_loads_overview((out / 'tiles' / tile / 'overview.json.gz').read_bytes())
@@ -481,7 +481,7 @@ def tier4_polygons(cell, count, start=0):
     return [[[(y + 20 * i, x), (y + 20 * i + 10, x), (y + 20 * i + 10, x + 10)]] for i in range(start, start + count)]
 
 
-# Requirement: Each region has an overview of its built cells' tier 4
+# Requirement: Each tile has an overview of its built cells' tier 4 ("The same cells give the same bytes")
 def test_the_same_cells_give_the_same_overview_bytes(live, tmp_path, monkeypatch):
     import gzip
     import types
@@ -498,8 +498,7 @@ def test_the_same_cells_give_the_same_overview_bytes(live, tmp_path, monkeypatch
     assert first == second == (out / f'tiles/{TILE}/overview.json.gz').read_bytes()
 
 
-# Requirement: Each region has an overview of its built cells' tier 4
-# Requirement: The manifest gives each region's overview
+# Requirement: The deploy job writes the overview from the cells it publishes ("A run adds a cell")
 def test_a_run_that_adds_a_cell_adds_it_to_the_overview(live, tmp_path):
     artifact(tmp_path, 0, [DILLON])
     _c, out = run(tmp_path, live)
@@ -526,7 +525,7 @@ def test_an_overview_whose_json_is_too_large_fails_the_deploy(live, tmp_path, mo
         run(tmp_path, live)
 
 
-# Requirement: The manifest gives each region's overview
+# Requirement: A tile's entry counts and masks its cells ("A tile overview's entry")
 def test_the_manifest_gives_the_overviews_size_and_counts(live, tmp_path):
     artifact(tmp_path, 0, [DILLON])
     _c, out = run(tmp_path, live)
@@ -554,7 +553,7 @@ def rule_matches(rule, path):
     return re.fullmatch(pattern, path) is not None
 
 
-# Requirement: The site sets its CORS and cache headers
+# Requirement: The deploy job writes the overview from the cells it publishes (a build job can't supply one)
 def test_rejects_an_overview_a_build_job_uploads(tmp_path):
     root = artifact(tmp_path, 0, [DILLON])
     (root / 'overview.json.gz').write_bytes(b'not the deploy job\'s')
@@ -726,7 +725,7 @@ def test_a_split_cell_is_published_under_quartered(live, tmp_path):
 
 
 # Requirement: The manifest lists quartered cells apart from whole ones ("No split cell")
-# Requirement: The manifest lists each region's coverage and built cells ("A pilot run")
+# Requirement: The manifest lists quartered cells apart from whole ones ("No split cell")
 def test_a_region_with_no_split_cell_has_an_empty_quartered(live, tmp_path):
     artifact(tmp_path, 0, [DILLON])
     _c, out = run(tmp_path, live)
@@ -926,7 +925,7 @@ def test_rejects_a_quarter_size_that_differs_from_its_entry(tmp_path):
         prep(tmp_path)
 
 
-# Requirement: The site sets its CORS and cache headers ("A quarter's cache")
+# Requirement: Each tile has an overview of its built cells' tier 4 ("A split cell's tier 4")
 def test_the_overview_holds_a_split_cells_quarters_in_order(live, tmp_path):
     counts = dict(zip(QUARTERS, (1, 2, 0, 4)))
     split_artifact(tmp_path, 0, split=[DILLON], t4=counts)
@@ -991,7 +990,6 @@ def test_a_deploy_over_a_live_manifest_without_quartered(tmp_path, monkeypatch):
     assert list(r['cells']) == [DILLON] and list(r['quartered']) == [OTHER]
 
 
-# Requirement: The manifest lists quartered cells apart from whole ones ("Quarters out of order")
 # --- deploying from hashes (change deploy-from-hashes) -------------------------------------------
 
 def hashes_doc(files):
@@ -1143,7 +1141,7 @@ def test_headers_go_beside_the_deployment_not_in_its_folder(live, tmp_path):
     assert (state_of(out) / '_headers').read_text() == site.HEADERS
 
 
-# Requirement: The site sets its CORS and cache headers ("The hashes' cache")
+# Requirement: The site holds at most 19,000 files ("Counting the hashes file")
 def test_the_file_count_counts_the_hashes_file_but_not_headers(live, tmp_path, monkeypatch):
     artifact(tmp_path, 0, [DILLON])
     # manifest, hashes, 404, LICENSE, 3 layers, the tile's overview, 12 tile indexes = 20; _headers isn't named
