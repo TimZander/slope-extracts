@@ -77,11 +77,12 @@ without the `t1-4` files.
    a mismatch fails the run, and the next run tries again.
 6c. **Every hash of the deployment is confirmed** (`upsert-hashes`) after the upload, as wrangler does,
    which keeps kept assets fresh in Cloudflare's store.
-6d. **Waits on Cloudflare** (assumption): every API call and live-site read has a timeout (2 minutes;
-   5 for the deployment), and the upload step retries a call up to 3 times on a network error or a
-   5xx, as wrangler does. Anything else fails the run with nothing deployed, and the next scheduled run
-   tries again. The deployment call isn't retried: if it timed out after Cloudflare accepted it, that
-   deployment is complete and correct anyway.
+6d. **Waits on Cloudflare**, now the requirement "Waits on Cloudflare are bounded": every API call and
+   live-site read has a timeout (2 minutes; 5 for the deployment), and the upload step makes a call at
+   most 3 times on a network error or a 5xx, as wrangler does, a read-back's whole body included.
+   Anything else fails the run with nothing deployed, and the next scheduled run tries again. The
+   deployment call isn't retried: if it timed out after Cloudflare accepted it, that deployment is
+   complete and correct anyway.
 6e. **A kept cell** is one the new manifest lists that this run didn't build (failed cells included).
 7. **`t1-4` files are read back and checked as before**, because the overviews are built from them.
    Every other kept file is never read when its hash is listed.
@@ -142,3 +143,9 @@ the site.
   the deployment's manifest; the secrets reach curl only through files and are unset first; scenarios
   for the confirmation, streaming and the token steps; test tasks; a size bound on re-reads; waits and
   retries), 6 consider (taken but K6, now open question 4). No round 3: no blocker.
+- Conformance review, round 1 (2026-11-26): 1 hard fail (the first run after the change: the new
+  `hashes.json` untested; now an end-to-end test), 8 soft fails. Taken in the spec: the deployment step
+  prints its id and URL; waits, retries and unexpected answers are a requirement. In tests: the project
+  and branch of both curl calls, no install script in the locked package. In code: the token's file is
+  removed even when the script fails before uploading; re-reads ask for no compression, as the Python
+  reader does. The ADRs and the security review were still to do.

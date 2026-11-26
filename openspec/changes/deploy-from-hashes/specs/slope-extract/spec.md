@@ -102,6 +102,28 @@ writing it to disk, and uploaded only if it hashes to its `hashes.json` entry; e
 - **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with other bytes
 - **THEN** the deploy job fails and no deployment is created
 
+### Requirement: Waits on Cloudflare are bounded
+
+Each call to Cloudflare's API and each read from the live site SHALL time out after 2 minutes (the
+deployment's call after 5), and be retried at most twice on a network error or a 5xx answer, the
+deployment's call never. Any other failure, or an answer the deploy doesn't expect (a missing hash no
+file of the deployment has, an answer that isn't JSON), SHALL fail the run with no deployment.
+
+#### Scenario: A transient 5xx
+
+- **WHEN** Cloudflare answers one call with a 502, then with success
+- **THEN** the call is made again and the upload goes on
+
+#### Scenario: A call that hangs
+
+- **WHEN** Cloudflare doesn't answer a call within its timeout, three times
+- **THEN** the run fails and no deployment is created
+
+#### Scenario: A hash no file has
+
+- **WHEN** Cloudflare reports lacking a hash that no file of the deployment has
+- **THEN** the run fails and no deployment is created
+
 ### Requirement: Files keep their content types
 
 Every file the deploy job uploads SHALL carry the content type wrangler gave it: `application/gzip`
@@ -134,12 +156,12 @@ The token and account id SHALL be secrets of the Environment `pages-production`,
 deploy job, and given only to two steps after the assemble and hash steps: one fetching an upload
 token for project `slope-extracts`, one creating the deployment from files earlier steps wrote. Each
 SHALL write them with shell builtins into curl's header and config files, removed on exit, unset them
-before running any program, and print no response.
+before running any program, and print nothing of an answer but the deployment's id and URL.
 
 #### Scenario: Reading the deploy job
 
 - **WHEN** the workflow file is read
-- **THEN** `secrets.` appears in exactly two steps of the deploy job, each calling only `api.cloudflare.com` with curl, both after the assemble and hash steps, and in no other job
+- **THEN** `secrets.` appears in exactly two steps of the deploy job, each calling only `api.cloudflare.com` with curl, for project `slope-extracts`, the deployment on branch `main`, both after the assemble and hash steps, and in no other job
 
 #### Scenario: Reading a token step
 

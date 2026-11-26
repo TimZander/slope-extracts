@@ -6,6 +6,7 @@
       "A deploy reads back only what it needs": null,
       "The live hashes belong to the live manifest": null,
       "A deploy uploads only the files Cloudflare lacks": null,
+      "Waits on Cloudflare are bounded": null,
       "Files keep their content types": null,
       "The deploy's one package is installed from its lockfile": null,
       "The Cloudflare token reaches two curl calls only": null,
