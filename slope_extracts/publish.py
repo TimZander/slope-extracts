@@ -1,10 +1,16 @@
-"""The deploy job's assembler: checks this run's cell artifacts, reads the previous site back from the
-live site, and writes the whole new site to a folder, which `wrangler pages deploy` uploads (Pages'
-Direct Upload sends only files whose content changed).
+"""The deploy job's assembler: checks this run's cell artifacts and writes the files the deployment
+needs that the live site can't supply by hash.
 
-    python -m slope_extracts.publish assemble --artifacts <dir> --out <dir>
+    python -m slope_extracts.publish assemble --artifacts <dir> --out <dir> --state <dir>
 
-It holds no credential: the Cloudflare token is given only to the wrangler step after it. It writes
+<out> gets this run's cells, the overviews, manifest.json, 404.html and LICENSE.txt, and the live files
+read back: every kept cell's t1-4 (the overviews are built from them) and any kept file the live
+hashes.json doesn't list. <state> gets kept.json (every other kept file's path, hash and size, from the
+live hashes.json, unread), checks.json (the hashes the Node step checks the read-back files and the
+live manifest against), the live manifest's bytes and _headers. deploy/pages.mjs then hashes <out>,
+writes hashes.json and the deployment's manifest, and uploads what Cloudflare lacks.
+
+It holds no credential: the Cloudflare token reaches only the two curl steps after it. It writes
 changed=true|false to $GITHUB_OUTPUT; false (nothing built this run, or no cell at all) skips the
 deploy.
 
@@ -27,6 +33,8 @@ from . import grid, overview, site
 SITE_URL = os.environ.get('SLOPE_SITE_URL', 'https://slope.timzander.com')
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+MAX_HASHES_BYTES = 4 * 1024 * 1024
+PAGES_HASH = re.compile(r'^[0-9a-f]{32}$')
 ARTIFACT = re.compile(r'^cells-(\d+)$')
 JOB_CELL = re.compile(r'^([a-z0-9]+(?:-[a-z0-9]+)*)/(-?\d+_-?\d+)$')
 USER_AGENT = 'slope-extracts deploy (https://github.com/TimZander/slope-extracts)'
@@ -61,7 +69,7 @@ def first_deploy_on(env=None):
     return (os.environ if env is None else env).get('FIRST_DEPLOY') == 'true'
 
 
-def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False):
+def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False, keep_body=None):
     """The live site's manifest, or None when it has none yet (404).
 
     first_deploy: a manifest.json answering 200 with a body that isn't JSON is also None, when a path no
@@ -69,6 +77,8 @@ def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False):
     status, body = get(f'{site_url}/manifest.json', MAX_MANIFEST_BYTES)
     if status == 404:
         return None
+    if keep_body is not None:
+        keep_body.append(body)
     try:
         doc = json.loads(body)
     except ValueError as e:
@@ -81,17 +91,50 @@ def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False):
         raise RuntimeError(f'the live manifest is not valid: {e}')
 
 
-def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, workers=2):
-    """Downloads every file the previous manifest lists, except cells in `skip` ({(region, cell)}),
-    into dest, each checked against its manifest size and the cell-file rules. Returns the paths."""
-    jobs = []
+def validate_hashes(doc):
+    """The live hashes.json's `files`, {"/<path>": hash}, when it is of its form; ValueError otherwise."""
+    if not isinstance(doc, dict) or set(doc) != {'format', 'version', 'files'}:
+        raise ValueError('it must have exactly format, version and files')
+    if doc['format'] != 'slope-hashes' or doc['version'] != 1:
+        raise ValueError('it is not slope-hashes version 1')
+    files = doc['files']
+    if not isinstance(files, dict):
+        raise ValueError('files is not an object')
+    for k, v in files.items():
+        if not k.startswith('/') or not isinstance(v, str) or not PAGES_HASH.fullmatch(v):
+            raise ValueError(f'{k!r} is not a path with a 32-digit lowercase hex hash')
+    return files
+
+
+def fetch_hashes(site_url=SITE_URL, get=http_get):
+    """The live hashes.json's files, or None when the site has none yet (a 404)."""
+    status, body = get(f'{site_url}/hashes.json', MAX_HASHES_BYTES)
+    if status == 404:
+        return None
+    try:
+        return validate_hashes(json.loads(body))
+    except ValueError as e:
+        raise RuntimeError(f'the live hashes.json is not valid: {e}')
+
+
+def kept_files(manifest, skip):
+    """[(path, cell, quarter, layer, bytes)] of every file of the manifest's cells but those in `skip`
+    ({(region, cell)}): a split cell's quarter files; a left-out layer has no file."""
+    out = []
     for r in manifest['regions']:
         for c, e in site.region_cells(r).items():
             if (r['id'], c) in skip:
                 continue
-            # a split cell's quarter files; a left-out layer has no file to read back
             for path, quarter, l, size in site.files_of(r['id'], c, e):
-                jobs.append((path, c, quarter, l, size))
+                out.append((path, c, quarter, l, size))
+    return out
+
+
+def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, workers=2, want=None):
+    """Downloads the kept files of the manifest (all but cells in `skip`) that `want(path, layer)`
+    picks (default all) into dest, each checked against its manifest size and the cell-file rules.
+    Returns the paths."""
+    jobs = [j for j in kept_files(manifest, skip) if want is None or want(j[0], j[3])]
 
     def one(job):
         path, cell, quarter, layer, size = job
@@ -265,17 +308,20 @@ def check_cell_file(path, cell, layer, max_json=MAX_CELL_JSON, quarter=None):
 
 
 def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None, site_url=SITE_URL, get=http_get,
-             log=print, output=None, first_deploy=False):
+             log=print, output=None, first_deploy=False, state_dir=None):
     """plan_jobs / plan_had_manifest: what the plan job saw. A deploy that finds no live manifest when the
     plan found one fails, rather than publishing a site of this run's cells alone."""
     regions = regions or site.load_regions()
-    if os.path.exists(out_dir):
-        raise RuntimeError(f'{out_dir} already exists')
+    state_dir = state_dir or out_dir + '-state'
+    for d in (out_dir, state_dir):
+        if os.path.exists(d):
+            raise RuntimeError(f'{d} already exists')
     built = read_artifacts(artifacts_dir, regions, plan_jobs)
     if not built:
         log('No cell was built this run: nothing to deploy.')
         return _out(output, False)
-    previous = fetch_manifest(site_url, get, first_deploy)
+    live_body = []
+    previous = fetch_manifest(site_url, get, first_deploy, keep_body=live_body)
     if previous is None and plan_had_manifest:
         raise RuntimeError('the live manifest answered 404 (or the first-deploy switch read it as none), but the '
                            'plan job read one: refusing to publish a site that would drop every earlier cell')
@@ -291,13 +337,32 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
     if len(files) > site.MAX_SITE_FILES:
         raise RuntimeError(f'the site would hold {len(files)} files, over the {site.MAX_SITE_FILES}-file limit')
     os.makedirs(out_dir)
+    os.makedirs(state_dir)
+    kept, checks = {}, {'manifest': None, 'readback': {}}
     if previous is not None:
-        fetched = fetch_previous(manifest, out_dir, set(built), site_url, get)
         live_cells = sum(len(site.region_cells(r)) for r in previous['regions'])
         new_cells = sum(len(site.region_cells(r)) for r in manifest['regions'])
         if new_cells < live_cells:
             raise RuntimeError(f'the new manifest lists {new_cells} cells, fewer than the live {live_cells}')
-        log(f'{len(fetched)} file(s) read back from the live site')
+        live_hashes = fetch_hashes(site_url, get)
+        listed = live_hashes or {}
+        if live_hashes is not None:
+            if '/manifest.json' not in live_hashes:
+                raise RuntimeError('the live hashes.json lists no manifest.json')
+            checks['manifest'] = live_hashes['/manifest.json']
+        with open(os.path.join(state_dir, 'live-manifest.json'), 'wb') as fh:
+            fh.write(live_body[0])
+
+        def want(path, layer):
+            # the overviews are built from every t1-4; a file with no listed hash must be read to hash it
+            return layer == 't1-4' or '/' + path not in listed
+        fetched = fetch_previous(manifest, out_dir, set(built), site_url, get, want=want)
+        for path in fetched:
+            checks['readback']['/' + path] = listed.get('/' + path)
+        for path, _c, _q, _l, size in kept_files(manifest, set(built)):
+            if not want(path, _l):
+                kept['/' + path] = {'hash': listed['/' + path], 'bytes': size}
+        log(f'{len(fetched)} file(s) read back from the live site; {len(kept)} kept by their hash')
     for (region, cell), (_e, paths) in built.items():
         for (q, l), p in paths.items():
             dst = os.path.join(out_dir, site.layer_path(region, cell, l) if q is None else site.quarter_path(region, cell, q, l))
@@ -317,15 +382,23 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
             r['overview'] = overview.entry(doc, data)
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as fh:
         fh.write(json.dumps(manifest, indent=1) + '\n')
-    for name, text in (('_headers', site.HEADERS), ('404.html', site.NOT_FOUND_HTML), ('LICENSE.txt', site.license_text(manifest))):
+    for name, text in (('404.html', site.NOT_FOUND_HTML), ('LICENSE.txt', site.license_text(manifest))):
         with open(os.path.join(out_dir, name), 'w') as fh:
             fh.write(text)
     have = set()
     for root, _dirs, names in os.walk(out_dir):
         for n in names:
             have.add(os.path.relpath(os.path.join(root, n), out_dir).replace(os.sep, '/'))
-    if have != set(files):
-        raise RuntimeError(f'the site folder differs from its manifest: {sorted(have ^ set(files))[:5]}')
+    by_hash = {k.lstrip('/') for k in kept}
+    # every file the deployment names is in the folder or kept by its hash; hashes.json comes next
+    want_files = set(files) - {'hashes.json'}
+    if have & by_hash or (have | by_hash) != want_files:
+        raise RuntimeError(f'the site differs from its manifest: {sorted((have | by_hash) ^ want_files)[:5]}')
+    for name, doc in (('kept.json', kept), ('checks.json', checks)):
+        with open(os.path.join(state_dir, name), 'w') as fh:
+            json.dump(doc, fh, indent=1, sort_keys=True)
+    with open(os.path.join(state_dir, '_headers'), 'w') as fh:
+        fh.write(site.HEADERS)
     log(f'Site assembled: {len(built)} cell(s) built this run, {len(files)} files.')
     return _out(output, True)
 
@@ -343,6 +416,7 @@ def main(argv=None):
     ap.add_argument('action', choices=['assemble'])
     ap.add_argument('--artifacts', required=True)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--state')
     args = ap.parse_args(argv)
     try:
         jobs = json.loads(os.environ.get('PLAN_JOBS', ''))
@@ -351,7 +425,7 @@ def main(argv=None):
         had = os.environ.get('PLAN_HAD_MANIFEST')
         if had not in ('true', 'false'):
             raise ValueError('PLAN_HAD_MANIFEST is not true or false')
-        assemble(args.artifacts, args.out, jobs, had == 'true', first_deploy=first_deploy_on())
+        assemble(args.artifacts, args.out, jobs, had == 'true', first_deploy=first_deploy_on(), state_dir=args.state)
     except (RuntimeError, ValueError, OSError) as e:
         print(f'::error::{safe(str(e))}', file=sys.stderr)
         return 1

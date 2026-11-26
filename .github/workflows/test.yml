@@ -1,4 +1,4 @@
-# The pipeline's tests, on every pull request and push to main. Read-only; no network beyond pip.
+# The pipeline's tests, on every pull request and push to main. Read-only; no network beyond pip and npm.
 name: test
 
 on:
@@ -21,8 +21,17 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q --require-hashes --only-binary=:all: --no-deps -r requirements.txt
+      # The deploy's one package (blake3-wasm), from the lockfile with no install scripts: the deploy
+      # script's tests and the Python tests that run it need it.
+      - name: Install the hashing package
+        working-directory: deploy
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Test
         run: |
           git config --global user.name test
           git config --global user.email test@example.com
           "$RUNNER_TEMP/venv/bin/python" -m pytest -q tests
+      # The deploy script against a fake Cloudflare API and live site on localhost.
+      - name: Test the deploy script
+        working-directory: deploy
+        run: node --test

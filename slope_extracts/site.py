@@ -8,7 +8,9 @@ Site layout, deployed to Cloudflare Pages (project slope-extracts) by Direct Upl
     <region>/<cell>/<quarter>/<layer>.json.gz
                                         a split cell's: one per quarter and layer (manifest `quartered`)
     <region>/overview.json.gz           each region's built cells' tier 4 (see overview.py)
-    _headers, 404.html, LICENSE.txt
+    hashes.json                         every other file's Pages hash, so a deploy needn't read it back
+    404.html, LICENSE.txt
+    _headers                            sent beside the deployment, not as one of its files
 """
 import json
 import os
@@ -277,6 +279,9 @@ HEADERS = """/*
 
 /manifest.json
   Cache-Control: public, max-age=300
+
+/hashes.json
+  Cache-Control: public, max-age=300
 """
 
 NOT_FOUND_HTML = """<!doctype html>
@@ -305,8 +310,9 @@ The derivation (the code that computes slope classes and writes these files) is 
 
 
 def site_files(manifest):
-    """Every path the manifest names, plus the fixed files."""
-    paths = ['manifest.json', '_headers', '404.html', 'LICENSE.txt']
+    """Every file the deployment names: the manifest's cells and overviews, and the fixed files.
+    `_headers` goes beside the deployment, so it isn't one."""
+    paths = ['manifest.json', 'hashes.json', '404.html', 'LICENSE.txt']
     for r in manifest['regions']:
         cells = region_cells(r)
         for c, e in cells.items():

@@ -1,8 +1,8 @@
 {
   "name": "slope-extracts-deploy",
   "private": true,
-  "description": "The deploy job's wrangler, installed with npm ci --ignore-scripts from the lockfile in a step that holds no secret.",
+  "description": "The deploy job's one package, Pages' hashing (blake3-wasm, wrangler's own), installed with npm ci --ignore-scripts from the lockfile in a step that holds no secret.",
   "dependencies": {
-    "wrangler": "3.114.17"
+    "blake3-wasm": "2.1.5"
   }
 }

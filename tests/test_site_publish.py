@@ -70,6 +70,8 @@ class FakeSite:
         self.requests.append(path)
         if path not in self.files:
             return 404, b''
+        if len(self.files[path]) > limit:
+            raise RuntimeError(f'{url} is over {limit} bytes')
         return 200, self.files[path]
 
     def publish(self, out, hashes=True):
@@ -175,7 +177,7 @@ def test_first_run_assembles_the_site(live, tmp_path):
     changed, out = run(tmp_path, live)
     assert changed is True
     files = sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file())
-    assert files == ['404.html', 'LICENSE.txt', '_headers', f'colorado/{DILLON}/t0-2m.json.gz',
+    assert files == ['404.html', 'LICENSE.txt', f'colorado/{DILLON}/t0-2m.json.gz',
                      f'colorado/{DILLON}/t0-3m.json.gz', f'colorado/{DILLON}/t1-4.json.gz', 'colorado/overview.json.gz',
                      'manifest.json']
     manifest = site.validate_manifest(json.loads((out / 'manifest.json').read_text()))
@@ -189,7 +191,9 @@ def test_second_run_keeps_the_live_cells(live, tmp_path):
     artifact(tmp_path, 0, [OTHER])
     changed, out2 = run(tmp_path, live, 'site2')
     assert changed is True
-    assert (out2 / f'colorado/{DILLON}/t0-3m.json.gz').read_bytes() == (out / f'colorado/{DILLON}/t0-3m.json.gz').read_bytes()
+    # the kept cell's t0-3m is deployed by its live hash, unread
+    kept = json.loads((state_of(out2) / 'kept.json').read_text())
+    assert kept[f'/colorado/{DILLON}/t0-3m.json.gz']['hash'] == json.loads(live.files['hashes.json'])['files'][f'/colorado/{DILLON}/t0-3m.json.gz']
     manifest = json.loads((out2 / 'manifest.json').read_text())
     assert set(manifest['regions'][0]['cells']) == {DILLON, OTHER}
     # a rebuilt cell is not read back from the live site
@@ -211,7 +215,7 @@ def test_failed_cell_keeps_its_live_files(live, tmp_path):
     (root / 'jobs.txt').write_text(f'colorado/{OTHER} colorado/{DILLON}')  # Dillon failed this run
     (root / 'failed.json').write_text(json.dumps([DILLON]))
     _c, out2 = run(tmp_path, live, 'site2', jobs=[f'colorado/{OTHER} colorado/{DILLON}'])
-    assert (out2 / f'colorado/{DILLON}/t0-3m.json.gz').exists()
+    assert f'colorado/{DILLON}/t0-3m.json.gz' in deployed(out2)
 
 
 def test_a_tampered_live_file_fails_the_deploy(live, tmp_path):
@@ -439,7 +443,7 @@ def test_headers_never_set_cache_control_twice_on_a_path():
             rules[current].append(line.split(':', 1)[0].strip())
     assert rules['/*'] == ['Access-Control-Allow-Origin', 'X-Content-Type-Options']
     assert all(v == ['Cache-Control'] for k, v in rules.items() if k != '/*')
-    assert set(rules) == {'/*', '/:region/:cell/*', '/:region/overview.json.gz', '/LICENSE.txt', '/manifest.json'}
+    assert set(rules) == {'/*', '/:region/:cell/*', '/:region/overview.json.gz', '/LICENSE.txt', '/manifest.json', '/hashes.json'}
 
 
 def test_license_lists_the_projects_used():
@@ -779,9 +783,10 @@ def test_the_marker_on_another_layer_in_the_live_manifest_fails_the_plan():
 
 
 def test_a_live_cell_without_its_2m_layer_is_read_back_without_it(live, tmp_path):
+    # "hashes.json lists none of its files": every kept file is read back
     artifact(tmp_path, 0, [DILLON], left_out=('t0-2m',))
     _c, out = run(tmp_path, live)
-    live.publish(out)
+    live.publish(out, hashes=False)
     before = json.loads(live.files['manifest.json'])['regions'][0]['cells'][DILLON]
     live.requests.clear()
     artifact(tmp_path, 0, [OTHER])
@@ -873,7 +878,7 @@ def test_a_split_cell_is_published_under_quartered(live, tmp_path):
             assert (doc['cell'], doc['quarter'], doc['layer']) == (DILLON, q, l)
     assert not any((out / f'colorado/{DILLON}/{l}.json.gz').exists() for l in site.LAYERS)
     files = sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file())
-    assert sorted(site.site_files(manifest)) == files
+    assert sorted(set(site.site_files(manifest)) - {'hashes.json'}) == files
 
 
 # Requirement: The manifest lists quartered cells apart from whole ones ("No split cell")
@@ -953,9 +958,10 @@ def test_plan_rebuilds_a_whole_cell_with_a_layer_left_out_but_not_a_split_one():
 
 # Requirement: Files read back from the live site are checked ("A live split cell")
 def test_a_live_split_cell_is_read_back_by_its_quarters(live, tmp_path):
+    # "hashes.json lists none of its files": every kept file is read back
     split_artifact(tmp_path, 0, split=[DILLON], left_out={QUARTERS[1]: ('t0-2m',)})
     _c, out = run(tmp_path, live)
-    live.publish(out)
+    live.publish(out, hashes=False)
     before = json.loads(live.files['manifest.json'])['regions'][0]['quartered'][DILLON]
     live.requests.clear()
     artifact(tmp_path, 0, [OTHER])
@@ -982,10 +988,11 @@ def test_a_live_quarter_from_another_quarter_fails_the_deploy(live, tmp_path):
     split_artifact(tmp_path, 0, split=[DILLON])
     _c, out = run(tmp_path, live)
     live.publish(out)
-    a, b = (f'colorado/{DILLON}/{q}/t0-3m.json.gz' for q in QUARTERS[:2])
+    # t1-4 files are always read back (the overview is built from them), so the swap is read and checked
+    a, b = (f'colorado/{DILLON}/{q}/t1-4.json.gz' for q in QUARTERS[:2])
     live.files[a] = live.files[b]  # and its size in the manifest: a swap only the quarter check sees
     m = json.loads(live.files['manifest.json'])
-    m['regions'][0]['quartered'][DILLON]['quarters'][QUARTERS[0]]['layers']['t0-3m']['bytes'] = len(live.files[b])
+    m['regions'][0]['quartered'][DILLON]['quarters'][QUARTERS[0]]['layers']['t1-4']['bytes'] = len(live.files[b])
     live.files['manifest.json'] = json.dumps(m).encode()
     artifact(tmp_path, 0, [OTHER])
     with pytest.raises(RuntimeError, match='not the slope-cell file'):
@@ -1179,7 +1186,7 @@ def test_the_file_count_counts_a_split_cells_files(live, tmp_path, monkeypatch):
         run(tmp_path, live)
     monkeypatch.setattr(site, 'MAX_SITE_FILES', 19)
     _c, out = run(tmp_path, live, 'site2')
-    assert sum(1 for p in out.rglob('*') if p.is_file()) == 19
+    assert len(deployed(out) | {'hashes.json'}) == 19
 
 
 # CLAUDE.md: the plan and deploy jobs use only the standard library (the deploy job holds the token);
@@ -1395,3 +1402,69 @@ def test_main_takes_the_state_folder(tmp_path, monkeypatch):
     assert publish.main(['assemble', '--artifacts', str(tmp_path), '--out', str(tmp_path / 'o'),
                          '--state', str(tmp_path / 's')]) == 0
     assert seen['state_dir'] == str(tmp_path / 's')
+
+
+# --- the assemble step and the Node hash step together (real Pages hashes) -----------------------
+
+NODE_MODULES = pathlib.Path(__file__).resolve().parent.parent / 'deploy' / 'node_modules' / 'blake3-wasm'
+
+
+def node_hash(out):
+    """deploy/pages.mjs hash on a run's folders; the test workflow installs blake3-wasm first."""
+    import subprocess
+    assert NODE_MODULES.exists(), 'run npm ci --ignore-scripts in deploy/ first'
+    script = pathlib.Path(__file__).resolve().parent.parent / 'deploy' / 'pages.mjs'
+    return subprocess.run(['node', str(script), 'hash', '--site', str(out), '--state', str(state_of(out))],
+                          capture_output=True, text=True)
+
+
+def publish_for_real(live, out):
+    """What creating the deployment from deployment.json would leave live."""
+    state = state_of(out)
+    deployment = json.loads((state / 'deployment.json').read_text())
+    old = live.files
+    live.files = {}
+    for p in deployment:
+        local = out / p.lstrip('/')
+        live.files[p.lstrip('/')] = local.read_bytes() if local.exists() else old[p.lstrip('/')]
+    live.files['_headers'] = (state / '_headers').read_bytes()
+
+
+# Requirement: A deploy reads back only what it needs; The live hashes belong to the live manifest
+def test_assemble_and_hash_deploy_a_second_run_by_hash(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    r = node_hash(out)
+    assert r.returncode == 0, r.stderr
+    publish_for_real(live, out)
+    first = json.loads(live.files['hashes.json'])['files']
+    assert sorted(first) == sorted('/' + p for p in site.site_files(json.loads(live.files['manifest.json'])) if p != 'hashes.json')
+    artifact(tmp_path, 0, [OTHER])
+    live.requests.clear()
+    _c, out2 = run(tmp_path, live, 'site2')
+    assert sorted(live.requests) == sorted(['manifest.json', 'hashes.json', f'colorado/{DILLON}/t1-4.json.gz'])
+    r = node_hash(out2)
+    assert r.returncode == 0, r.stderr
+    deployment = json.loads((state_of(out2) / 'deployment.json').read_text())
+    for l in ('t0-3m', 't0-2m', 't1-4'):
+        p = f'/colorado/{DILLON}/{l}.json.gz'
+        assert deployment[p] == first[p]
+    publish_for_real(live, out2)
+    manifest = json.loads(live.files['manifest.json'])
+    assert set(manifest['regions'][0]['cells']) == {DILLON, OTHER}
+    assert set(live.files) == set(site.site_files(manifest)) | {'_headers'}
+
+
+# Requirement: The live hashes belong to the live manifest ("Hashes from another deployment")
+def test_hashes_from_another_deployment_fail_the_hash_step(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    assert node_hash(out).returncode == 0
+    publish_for_real(live, out)
+    m = json.loads(live.files['manifest.json'])
+    m['attribution'] = 'a newer deployment'
+    live.files['manifest.json'] = json.dumps(m).encode()  # hashes.json is still the older deployment's
+    artifact(tmp_path, 0, [OTHER])
+    _c, out2 = run(tmp_path, live, 'site2')
+    r = node_hash(out2)
+    assert r.returncode == 1 and 'another deployment' in r.stderr
