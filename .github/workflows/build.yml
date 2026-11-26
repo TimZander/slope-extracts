@@ -1,7 +1,7 @@
 # Builds slope-angle cells from USGS 3DEP and deploys them to Cloudflare Pages (Direct Upload,
 # project slope-extracts, https://slope.timzander.com). Spec: openspec/specs/slope-extract.
 #
-# Each run builds the cells of regions.json that the live site lacks, built with another recipe, or
+# Each run builds the cells of areas.json that the live site lacks, built with another recipe, or
 # built over 300 days ago; at most 48 per run, three per job. With nothing to build a run is the plan
 # job alone.
 #
@@ -42,13 +42,15 @@ jobs:
   plan:
     if: ${{ vars.BUILD_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # It reads the manifest and every tile index (four at a time, each bounded by a 2-minute timeout).
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
       count: ${{ steps.plan.outputs.count }}
       had_manifest: ${{ steps.plan.outputs.had_manifest }}
+      manifest_version: ${{ steps.plan.outputs.manifest_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,7 +87,7 @@ jobs:
         env:
           CELLS: ${{ matrix.cells }}
           INDEX: ${{ strategy.job-index }}
-        # CELLS is the plan's own output, "<region>/<cell>" items split on spaces.
+        # CELLS is the plan's own output, cell ids split on spaces.
         run: |
           read -r -a items <<< "$CELLS"
           "$RUNNER_TEMP/venv/bin/python" -m slope_extracts.build_cell "${items[@]}" --out "$RUNNER_TEMP/out/cells-$INDEX"
@@ -101,7 +103,8 @@ jobs:
 
   deploy:
     needs: [plan, build]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    # A version 1 site deploys even with nothing built (or all failed): the first run moves it onto the grid.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.count != '0' || needs.plan.outputs.manifest_version == '1') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: pages-production
@@ -125,6 +128,7 @@ jobs:
         env:
           PLAN_JOBS: ${{ needs.plan.outputs.jobs }}
           PLAN_HAD_MANIFEST: ${{ needs.plan.outputs.had_manifest }}
+          PLAN_MANIFEST_VERSION: ${{ needs.plan.outputs.manifest_version }}
           FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}
         run: python3 -m slope_extracts.publish assemble --artifacts "$RUNNER_TEMP/artifacts" --out _site --state _deploy
       # blake3-wasm alone, from deploy/package-lock.json (integrity hash), with no install scripts, in a

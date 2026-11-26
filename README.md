@@ -4,21 +4,24 @@ Slope-angle shading cells for [garmin-map](https://maps.timzander.com)'s slope l
 USGS 3D Elevation Program (3DEP) and published as a static site at <https://slope.timzander.com>.
 
 - **What it builds:** `openspec/specs/slope-extract` (the spec), `docs/decisions/` (why).
-- **How:** `.github/workflows/build.yml` runs every 3 hours and by hand. It builds the cells of
-  `regions.json` that the site lacks or built with an older recipe, at most 48 per run, three per job:
+- **How:** `.github/workflows/build.yml` runs every 3 hours and by hand. It builds the covered cells
+  the site lacks or built with an older recipe, at most 48 per run, three per job:
+  - `areas.json` lists named areas, each one or more boxes; the coverage is every 0.25° cell a box
+    overlaps, each cell built and stored once however many areas cover it.
   - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic.
-  - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes three
-    gzip JSON files per 0.25° cell. A cell with a file too large to publish (over 20 MiB of gzip or
-    64 MiB of JSON) is split: all three layers are written for each of its four 0.125° quarters, at
-    `<region>/<cell>/<quarter>/<layer>.json.gz`, and the manifest lists it under the region's
-    `quartered`, not `cells`, with per-quarter layers. A quarter's `t0-2m` still too large is left out
-    with a warning; the manifest then gives that layer `bytes` 0 and no polygons, and the site holds no
-    file for it.
-  - A deploy job checks them, reads back from the live site only what it needs (every cell's `t1-4`,
-    for each region's `overview.json.gz`, the app's zoomed-out view), and writes `hashes.json`: every
-    file's Pages hash. It then creates a Pages deployment from that manifest of hashes, uploading only
-    the files Cloudflare lacks (`deploy/pages.mjs`), so a deploy's time and disk grow with its new
-    cells, not the site.
+  - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes up to
+    three gzip JSON files per cell at `cells/<cell>/<layer>.json.gz`; a layer with no polygon gets no
+    file (its entry: `bytes` 0, `tiers` `{}`). A cell with a file too large to publish (over 20 MiB of
+    gzip or 64 MiB of JSON) is split into its four 0.125° quarters, at
+    `cells/<cell>/<quarter>/<layer>.json.gz`; a quarter's `t0-2m` still too large is left out (`bytes`
+    0, tier `0` counted at 0).
+  - The site is indexed by 2° tiles of 64 cells: `manifest.json` (version 2) lists each tile's counts,
+    cell masks and index size, and the areas; `tiles/<tile>/index.json` holds its cells' entries and
+    `tiles/<tile>/overview.json.gz` their tier 4, the app's zoomed-out view.
+  - A deploy job checks the cells, reads back from the live site only what it needs (each kept cell's
+    `t1-4`, for the tile overviews), and writes `hashes.json`: every file's Pages hash. It then creates
+    a Pages deployment from that manifest of hashes, uploading only the files Cloudflare lacks
+    (`deploy/pages.mjs`), so a deploy's time and disk grow with its new cells, not the site.
 - **Setup:** `docs/setup.md` (Cloudflare project, token, Environment, then `BUILD_ENABLED`).
 - **Locally:** `python -m venv .venv && .venv/bin/pip install -r requirements.in && .venv/bin/python -m
   pytest -q tests`. Build a real cell with `.venv/bin/python -m slope_extracts.build_cell 158_-425 --out

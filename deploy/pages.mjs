@@ -4,8 +4,8 @@
 //   node deploy/pages.mjs hash   --site <dir> --state <dir>                   no secret
 //   node deploy/pages.mjs upload --site <dir> --state <dir> --jwt-file <file> the upload JWT only
 //
-// `hash` hashes this run's folder as Pages does, checks the files read back and the live manifest
-// against the live hashes.json (via <state>/checks.json), and writes <site>/hashes.json,
+// `hash` hashes this run's folder as Pages does, checks the files read back and the live manifest and
+// tile indexes against the live hashes.json (via <state>/checks.json), and writes <site>/hashes.json,
 // <state>/deployment.json (Cloudflare's deployment manifest, "/<path>" -> hash) and
 // <state>/upload.json. `upload` asks Cloudflare which hashes it lacks, uploads only those (a kept
 // file it lacks is read back from the live site and sent only if it hashes to its entry), and
@@ -29,6 +29,8 @@ const MAX_BUCKET_FILES = 2000 // wrangler's MAX_BUCKET_FILE_COUNT
 const TIMEOUT_MS = 120_000
 const ATTEMPTS = 3
 const HASH = /^[0-9a-f]{32}$/
+// where a kept file is read back from when it moved (the first run on the grid: its version 1 path)
+const CELL_FILE = /^\/[a-z0-9]+(?:-[a-z0-9]+)*\/-?\d+_-?\d+(?:\/-?\d+_-?\d+)?\/(?:t0-3m|t0-2m|t1-4)\.json\.gz$/
 // wrangler's content types (mime 3) for the files this site holds
 const TYPES = { gz: 'application/gzip', json: 'application/json', html: 'text/html', txt: 'text/plain' }
 
@@ -81,18 +83,22 @@ export function runHash ({ site, state }) {
   }
   for (const [p, e] of Object.entries(kept)) {
     if (!HASH.test(e.hash) || !Number.isInteger(e.bytes) || e.bytes < 0) throw new Error(`${p} has no valid hash and size`)
+    if (e.from !== undefined && (typeof e.from !== 'string' || !CELL_FILE.test(e.from))) throw new Error(`${p}: from is not a cell file's path`)
     files[p] = e.hash
-    upload.push({ path: p, hash: e.hash, bytes: e.bytes, local: false, contentType: contentType(p) })
+    upload.push({ path: p, hash: e.hash, bytes: e.bytes, local: false, contentType: contentType(p), ...(e.from ? { from: e.from } : {}) })
   }
   // Read-back files must be the bytes the live hashes.json describes, and it the live manifest's.
   for (const [p, want] of Object.entries(checks.readback)) {
     if (!(p in files)) throw new Error(`${p} was read back but isn't in the folder`)
     if (want !== null && files[p] !== want) throw new Error(`${p} read back hashes to ${files[p]}, not the ${want} hashes.json gives`)
   }
-  if (checks.manifest !== null) {
-    const live = fs.readFileSync(path.join(state, 'live-manifest.json'))
-    if (pagesHash(live, 'manifest.json') !== checks.manifest) {
-      throw new Error('the live hashes.json belongs to another deployment than the live manifest; the next run tries again')
+  // the live manifest and tile indexes read must be the ones the live hashes.json was written with
+  const liveDir = path.join(path.resolve(state), 'live') + path.sep
+  for (const { file, name, hash } of checks.live) {
+    const f = path.resolve(state, String(file))
+    if (!f.startsWith(liveDir) || !HASH.test(hash)) throw new Error(`${file} is not a live file of the state folder`)
+    if (pagesHash(fs.readFileSync(f), String(name)) !== hash) {
+      throw new Error(`the live hashes.json belongs to another deployment than the live ${name}; the next run tries again`)
     }
   }
   const listed = sortedObject(files)
@@ -162,7 +168,7 @@ async function readBack (siteUrl, item, retryDelayMs, timeoutMs) {
     }
     if (data.length !== item.bytes) throw new Error(`${item.path} on the live site is ${data.length} bytes, not its ${item.bytes}`)
     if (pagesHash(data, item.path) !== item.hash) throw new Error(`${item.path} changed on the live site: it doesn't hash to its hashes.json entry`)
-    const check = spawnSync('python3', ['-I', CHECKER, item.path], { input: data, stdio: ['pipe', 'ignore', 'ignore'], timeout: 120_000 })
+    const check = spawnSync('python3', ['-I', CHECKER, item.from || item.path], { input: data, stdio: ['pipe', 'ignore', 'ignore'], timeout: 120_000 })
     if (check.status !== 0) throw new Error(`${item.path} read back fails the cell-file checks`)
     return data
   }
@@ -172,7 +178,7 @@ async function readOnce (siteUrl, item, timeoutMs) {
   const retry = message => Object.assign(new Error(message), { retry: true })
   let res
   try {
-    res = await fetch(`${siteUrl}${item.path}`, {
+    res = await fetch(`${siteUrl}${item.from || item.path}`, {
       headers: { 'accept-encoding': 'identity' },
       redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs)

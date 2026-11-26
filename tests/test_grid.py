@@ -6,7 +6,7 @@ import json
 import pytest
 
 from slope_extracts import cellfile, grid, overview, publish, site
-from sitefake import (AREAS, COLORADO, DILLON, EMPTY, LEFT_OUT, OTHER, URL, FakeSite, artifact, deployed, entry,
+from sitefake import (AREAS, COLORADO, DILLON, EMPTY, LEFT_OUT, NEIGHBOUR, OTHER, URL, FakeSite, artifact, deployed, entry,
                       fake_cell, planned_jobs, run, state_of, v1_site)
 
 TODAY = datetime.date(2026, 11, 24)
@@ -172,18 +172,18 @@ def overview_of(out, tile='19_-54'):
 
 def test_a_tiles_overview_holds_its_cells_in_order(live, tmp_path):
     root = artifact(tmp_path, [])
-    fake_cell(root, OTHER, t4=5)
-    fake_cell(root, DILLON, t4=3)
-    (root / 'jobs.txt').write_text(f'{DILLON} {OTHER}')
+    fake_cell(root, DILLON, t4=5)
+    fake_cell(root, NEIGHBOUR, t4=3)
+    (root / 'jobs.txt').write_text(f'{DILLON} {NEIGHBOUR}')
     _c, out = run(tmp_path, live)
     doc = overview_of(out)
     assert list(doc) == ['format', 'version', 'tile', 'tiers']
     assert (doc['format'], doc['version'], doc['tile']) == ('slope-overview', 2, '19_-54')
     got = doc['tiers']['4']['30']
-    first = cellfile.loads((out / f'cells/{OTHER}/t1-4.json.gz').read_bytes())['tiers']['4']['30']
+    first = cellfile.loads((out / f'cells/{NEIGHBOUR}/t1-4.json.gz').read_bytes())['tiers']['4']['30']
     second = cellfile.loads((out / f'cells/{DILLON}/t1-4.json.gz').read_bytes())['tiers']['4']['30']
-    # OTHER (column -424) comes after DILLON (column -425) in row then column order
-    assert got == second + first and len(got) == 8
+    # NEIGHBOUR (column -426) comes before DILLON (column -425) in row then column order
+    assert got == first + second and len(got) == 8
 
 
 def test_only_empty_zoomed_out_layers_give_an_empty_overview(live, tmp_path):
@@ -334,7 +334,7 @@ def test_the_plan_and_deploy_read_different_versions(tmp_path):
 def test_a_second_run_reads_back_only_the_t1_4_and_keeps_the_rest_by_hash(tmp_path):
     live = published(tmp_path)
     live.requests.clear()
-    artifact(tmp_path, [OTHER])
+    artifact(tmp_path, [NEIGHBOUR])
     _c, out = run(tmp_path, live, name='second')
     read = [p for p in live.requests if not p.startswith('tiles/') or p == 'tiles/19_-54/index.json']
     assert sorted(set(read) - {'manifest.json', 'hashes.json', 'tiles/19_-54/index.json'}) == [f'cells/{DILLON}/t1-4.json.gz']
@@ -445,7 +445,7 @@ def test_a_version_1_cell_no_area_covers_fails_the_deploy(tmp_path):
     m['regions'][0]['coverage'].append('0_0')
     live.files['manifest.json'] = json.dumps(m).encode()
     live.set_hashes()
-    artifact(tmp_path, [OTHER])
+    artifact(tmp_path, [DILLON])  # the new site holds DILLON only; the live one held 2
     with pytest.raises(RuntimeError, match='fewer'):
         run(tmp_path, live)
 
@@ -458,7 +458,7 @@ def test_a_version_1_left_out_layer_stays_left_out(tmp_path, monkeypatch):
     idx = json.loads((out / 'tiles/19_-54/index.json').read_text())
     assert idx['cells'][DILLON]['layers']['t0-2m'] == LEFT_OUT
     live.publish(out)
-    assert DILLON in [c for j in site.plan(AREAS, fetch(live), 1, 48, 3, today=TODAY) for c in j]
+    assert DILLON in [c for j in site.plan(only([DILLON]), fetch(live), 1, 48, 3, today=TODAY) for c in j]
 
 
 def test_a_version_1_file_with_no_polygons_becomes_empty(tmp_path, monkeypatch):

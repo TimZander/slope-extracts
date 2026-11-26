@@ -75,5 +75,52 @@ def quarter_bounds(cell_id, quarter):
     return (south, ym)[i], (west, xm)[j], (ym, north)[i], (xm, east)[j]
 
 
+# Tiles: 2 x 2 degrees, 8 x 8 cells, "<trow>_<tcol>" with trow = floor(lat / 2) = floor(row / 8).
+TILE_CELLS = 8
+
+
+def tile_of(cell_id):
+    row, col = parse_cell(cell_id)
+    return f'{row // TILE_CELLS}_{col // TILE_CELLS}'
+
+
+def parse_tile(tile_id):
+    m = CELL_ID.match(tile_id) if isinstance(tile_id, str) else None
+    if not m:
+        raise ValueError(f'{tile_id!r} is not a tile id')
+    trow, tcol = int(m.group(1)), int(m.group(2))
+    if not (-45 <= trow < 45 and -90 <= tcol < 90):
+        raise ValueError(f'{tile_id!r} is outside the globe')
+    return trow, tcol
+
+
+def tile_cells(tile_id):
+    """The tile's 64 cells, in row then column order."""
+    trow, tcol = parse_tile(tile_id)
+    return [f'{TILE_CELLS * trow + i}_{TILE_CELLS * tcol + j}' for i in range(TILE_CELLS) for j in range(TILE_CELLS)]
+
+
+def tile_bounds(tile_id):
+    trow, tcol = parse_tile(tile_id)
+    return trow * 2.0, tcol * 2.0, (trow + 1) * 2.0, (tcol + 1) * 2.0
+
+
+def tile_bit(cell_id):
+    """A cell's bit in its tile's masks: its offset from the tile's first row and column (each 0-7)."""
+    row, col = parse_cell(cell_id)
+    return (row - TILE_CELLS * (row // TILE_CELLS)) * TILE_CELLS + (col - TILE_CELLS * (col // TILE_CELLS))
+
+
+def mask(cells):
+    """A tile's mask of `cells` (all in one tile): 64 bits as 16 lowercase hex digits, bit 0 last."""
+    tiles = {tile_of(c) for c in cells}
+    if len(tiles) > 1:
+        raise ValueError(f'cells of {len(tiles)} tiles in one mask')
+    value = 0
+    for c in cells:
+        value |= 1 << tile_bit(c)
+    return format(value, '016x')
+
+
 def compare_key(cell_id):
     return parse_cell(cell_id)

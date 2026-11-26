@@ -14,7 +14,8 @@ from slope_extracts import cellfile, grid, publish, site
 COLORADO = {'id': 'colorado', 'name': 'Colorado',
             'boxes': [{'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}]}
 AREAS = [COLORADO]
-DILLON, OTHER = '158_-425', '158_-424'  # both in tile 19_-54
+DILLON, OTHER = '158_-425', '158_-424'  # tiles 19_-54 and 19_-53 (column -424 starts the next tile)
+NEIGHBOUR = '158_-426'  # beside DILLON, in its tile 19_-54
 LEFT_OUT = {'bytes': 0, 'tiers': {'0': {'polygons': 0, 'points': 0}}}
 EMPTY = {'bytes': 0, 'tiers': {}}
 URL = 'https://slope.test'

@@ -3,16 +3,17 @@ needs that the live site can't supply by hash.
 
     python -m slope_extracts.publish assemble --artifacts <dir> --out <dir> --state <dir>
 
-<out> gets this run's cells, the overviews, manifest.json, 404.html and LICENSE.txt, and the live files
-read back: every kept cell's t1-4 (the overviews are built from them) and any kept file the live
-hashes.json doesn't list. <state> gets kept.json (every other kept file's path, hash and size, from the
-live hashes.json, unread), checks.json (the hashes the Node step checks the read-back files and the
-live manifest against), the live manifest's bytes and _headers. deploy/pages.mjs then hashes <out>,
-writes hashes.json and the deployment's manifest, and uploads what Cloudflare lacks.
+<out> gets this run's cells, each tile's index and overview, manifest.json (version 2), 404.html and
+LICENSE.txt, and the live files read back: every kept cell's t1-4 (the overviews are built from them)
+and any kept file the live hashes.json doesn't list. <state> gets kept.json (every other kept file's
+path, hash and size, and on the first run on the grid the version 1 path it is read from), checks.json
+(the hashes the Node step checks the read-back files and the live manifest and tile indexes against),
+those live files' bytes under live/, and _headers. deploy/pages.mjs then hashes <out>, writes
+hashes.json and the deployment's manifest, and uploads what Cloudflare lacks.
 
 It holds no credential: the Cloudflare token reaches only the two curl steps after it. It writes
-changed=true|false to $GITHUB_OUTPUT; false (nothing built this run, or no cell at all) skips the
-deploy.
+changed=true|false to $GITHUB_OUTPUT; false (nothing built this run on a version 2 site, or no cell at
+all) skips the deploy.
 
 Standard library only.
 """
@@ -36,7 +37,8 @@ MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_HASHES_BYTES = 4 * 1024 * 1024
 PAGES_HASH = re.compile(r'^[0-9a-f]{32}$')
 ARTIFACT = re.compile(r'^cells-(\d+)$')
-JOB_CELL = re.compile(r'^([a-z0-9]+(?:-[a-z0-9]+)*)/(-?\d+_-?\d+)$')
+JOB_CELL = re.compile(r'^-?\d+_-?\d+$')
+UNSET = object()
 USER_AGENT = 'slope-extracts deploy (https://github.com/TimZander/slope-extracts)'
 
 
@@ -69,26 +71,62 @@ def first_deploy_on(env=None):
     return (os.environ if env is None else env).get('FIRST_DEPLOY') == 'true'
 
 
-def fetch_manifest(site_url=SITE_URL, get=http_get, first_deploy=False, keep_body=None):
-    """The live site's manifest, or None when it has none yet (404).
+def _manifest_doc(site_url, get, first_deploy, keep):
+    """(True, the live manifest.json's parsed JSON), or (False, None) when the site has none yet (a 404).
 
     first_deploy: a manifest.json answering 200 with a body that isn't JSON is also None, when a path no
     site holds answers 200 too (a placeholder with no 404.html, never a site this pipeline deployed)."""
     status, body = get(f'{site_url}/manifest.json', MAX_MANIFEST_BYTES)
     if status == 404:
-        return None
-    if keep_body is not None:
-        keep_body.append(body)
+        return False, None
     try:
         doc = json.loads(body)
     except ValueError as e:
         if first_deploy and get(f'{site_url}/{PROBE_PATH}', MAX_MANIFEST_BYTES)[0] == 200:
-            return None
+            return False, None
         raise RuntimeError(f'the live manifest is not valid: {e}')
+    keep['manifest'] = body
+    return True, doc
+
+
+def fetch_live(site_url=SITE_URL, get=http_get, first_deploy=False, keep=None, workers=4):
+    """The live site as the plan and deploy read it, or None when it has none yet:
+    {'version': 1 or 2, 'manifest': doc, 'cells': {cell: entry}} and, for version 1, 'v1_paths'
+    ({cell: region it is read from}), for version 2, 'tiles' ({tile: index}). Every file is checked;
+    `keep` receives the bytes read ('manifest', and 'tiles' {tile: bytes}) for the hash tie."""
+    keep = {} if keep is None else keep
+    found, doc = _manifest_doc(site_url, get, first_deploy, keep)
+    if not found:
+        return None
     try:
-        return site.validate_manifest(doc)
+        version = doc.get('version') if isinstance(doc, dict) else None
+        if version == 1:
+            site.validate_manifest(doc)
+            cells, paths = site.v1_cells(doc)
+            return {'version': 1, 'manifest': doc, 'cells': cells, 'v1_paths': paths}
+        site.validate_manifest_v2(doc)
     except ValueError as e:
         raise RuntimeError(f'the live manifest is not valid: {e}')
+
+    def one(t):
+        status, body = get(f'{site_url}/{site.tile_index_path(t)}', MAX_MANIFEST_BYTES)
+        if status != 200:
+            raise ValueError(f'{site.tile_index_path(t)} answered {status}')
+        if len(body) != doc['tiles'][t]['indexBytes']:
+            raise ValueError(f'{site.tile_index_path(t)} is {len(body)} bytes, not the {doc["tiles"][t]["indexBytes"]} the manifest gives')
+        return t, body
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(workers) as ex:
+            bodies = dict(ex.map(one, list(doc['tiles'])))
+        tiles, cells = {}, {}
+        for t, body in bodies.items():
+            tiles[t] = json.loads(body)
+            cells.update(site.validate_tile_index(tiles[t], t, doc['tiles'][t]))
+    except ValueError as e:
+        raise RuntimeError(f'the live manifest is not valid: {e}')
+    keep['tiles'] = bodies
+    return {'version': 2, 'manifest': doc, 'cells': cells, 'tiles': tiles}
 
 
 def validate_hashes(doc):
@@ -117,32 +155,16 @@ def fetch_hashes(site_url=SITE_URL, get=http_get):
         raise RuntimeError(f'the live hashes.json is not valid: {e}')
 
 
-def kept_files(manifest, skip):
-    """[(path, cell, quarter, layer, bytes)] of every file of the manifest's cells but those in `skip`
-    ({(region, cell)}): a split cell's quarter files; a left-out layer has no file."""
-    out = []
-    for r in manifest['regions']:
-        for c, e in site.region_cells(r).items():
-            if (r['id'], c) in skip:
-                continue
-            for path, quarter, l, size in site.files_of(r['id'], c, e):
-                out.append((path, c, quarter, l, size))
-    return out
-
-
-def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, workers=2, want=None):
-    """Downloads the kept files of the manifest (all but cells in `skip`) that `want(path, layer)`
-    picks (default all) into dest, each checked against its manifest size and the cell-file rules.
-    Returns the paths."""
-    jobs = [j for j in kept_files(manifest, skip) if want is None or want(j[0], j[3])]
-
+def read_back(jobs, dest, site_url=SITE_URL, get=http_get, workers=2):
+    """Reads each (source path, site path, cell, quarter, layer, bytes) back from the live site's source
+    path into dest at its site path, checked against its entry's size and the cell-file rules."""
     def one(job):
-        path, cell, quarter, layer, size = job
-        status, body = get(f'{site_url}/{path}', MAX_FILE_BYTES)
+        src, path, cell, quarter, layer, size = job
+        status, body = get(f'{site_url}/{src}', MAX_FILE_BYTES)
         if status == 404:
-            raise RuntimeError(f'the live site lacks {path}, which its manifest lists')
+            raise RuntimeError(f'the live site lacks {src}, which its manifest lists')
         if len(body) != size:
-            raise RuntimeError(f'the live {path} is {len(body)} bytes, not the {size} its manifest says')
+            raise RuntimeError(f'the live {src} is {len(body)} bytes, not the {size} its entry gives')
         out = os.path.join(dest, path)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, 'wb') as fh:
@@ -164,15 +186,14 @@ MAX_JOBS_TXT = 4096
 MAX_CELL_JSON = 64 * 1024 * 1024
 
 
-def read_artifacts(artifacts_dir, regions, plan_jobs):
-    """{(region, cell): (entry, {layer: path})} for every cell this run built, each checked.
+def read_artifacts(artifacts_dir, covered, plan_jobs):
+    """{cell: (entry, {(quarter, layer): path})} for every cell this run built, each checked.
 
-    `plan_jobs` is the plan job's own list, one string of "<region>/<cell>" items per build job. Artifact
+    `plan_jobs` is the plan job's own list, one string of cell ids per build job, each in `covered`. Artifact
     cells-<n> may exist only for a planned job n, and its jobs.txt must be that job's list exactly, so a
     build job can publish only the cells it was given. download-artifact leaves one folder per artifact;
     each holds jobs.txt, one folder per built cell, and failed.json when a cell failed.
     """
-    by_id = {r['id']: r for r in regions}
     out = {}
     if not os.path.isdir(artifacts_dir):
         return out
@@ -180,10 +201,9 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
     for n, items in enumerate(plan_jobs):
         cells = []
         for item in items.split():
-            m = JOB_CELL.fullmatch(item)
-            if not m or m.group(1) not in by_id or m.group(2) not in set(site.coverage(by_id[m.group(1)])):
-                raise RuntimeError(f'the plan lists {item!r}, which is not a cell of a listed region')
-            cells.append((m.group(1), m.group(2)))
+            if not JOB_CELL.fullmatch(item) or item not in covered:
+                raise RuntimeError(f'the plan lists {item!r}, which is not a covered cell')
+            cells.append(item)
         planned[f'cells-{n}'] = cells
     all_cells = [c for cells in planned.values() for c in cells]
     if len(set(all_cells)) != len(all_cells):
@@ -202,14 +222,14 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
         if not os.path.exists(jobs_file) or not _regular(jobs_file) or os.path.getsize(jobs_file) > MAX_JOBS_TXT:
             raise RuntimeError(f'{label} has no jobs.txt of at most {MAX_JOBS_TXT} bytes')
         listed = open(jobs_file, encoding='utf-8', errors='replace').read().split()
-        if listed != [f'{r}/{c}' for r, c in planned[name]]:
+        if listed != planned[name]:
             raise RuntimeError(f'{label}: its jobs.txt is not the list the plan gave that job')
-        jobs = {c: r for r, c in planned[name]}
+        jobs = planned[name]
         allowed = set(jobs) | {'jobs.txt', 'failed.json'}
         for e in os.listdir(root):
             if e not in allowed:
                 raise RuntimeError(f'{label} holds {e!r}, which its job did not build')
-        for cell, region in jobs.items():
+        for cell in jobs:
             cdir = os.path.join(root, cell)
             if not os.path.lexists(cdir):
                 continue  # the cell failed; its previous files stay
@@ -257,7 +277,7 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
                     if sizes[l]['bytes'] != os.path.getsize(p):
                         raise RuntimeError(f'{label}: {where}/{l} size differs from its entry')
                     paths[(q, l)] = p
-            out[(region, cell)] = (entry, paths)
+            out[cell] = (entry, paths)
     return out
 
 
@@ -315,82 +335,98 @@ def check_cell_bytes(data, cell, layer, max_json=MAX_CELL_JSON, quarter=None):
                             raise RuntimeError(f'{cell}/{layer}: a point lies outside the {"cell" if quarter is None else "quarter"}')
 
 
-def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None, site_url=SITE_URL, get=http_get,
-             log=print, output=None, first_deploy=False, state_dir=None):
-    """plan_jobs / plan_had_manifest: what the plan job saw. A deploy that finds no live manifest when the
-    plan found one fails, rather than publishing a site of this run's cells alone."""
-    regions = regions or site.load_regions()
+def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, areas=None, site_url=SITE_URL, get=http_get,
+             log=print, output=None, first_deploy=False, state_dir=None, plan_manifest_version=UNSET):
+    """plan_jobs / plan_had_manifest / plan_manifest_version: what the plan job saw. A deploy that finds no
+    live manifest when the plan found one, or another version, fails, rather than publishing a site the
+    plan didn't plan for."""
+    areas = areas or site.load_areas()
     state_dir = state_dir or out_dir + '-state'
     for d in (out_dir, state_dir):
         if os.path.exists(d):
             raise RuntimeError(f'{d} already exists')
-    built = read_artifacts(artifacts_dir, regions, plan_jobs)
-    if not built:
-        log('No cell was built this run: nothing to deploy.')
-        return _out(output, False)
-    live_body = []
-    previous = fetch_manifest(site_url, get, first_deploy, keep_body=live_body)
-    if previous is None and plan_had_manifest:
+    coverage = site.site_coverage(areas)
+    built = read_artifacts(artifacts_dir, set(coverage), plan_jobs)
+    keep = {}
+    live = fetch_live(site_url, get, first_deploy, keep)
+    if live is None and plan_had_manifest:
         raise RuntimeError('the live manifest answered 404 (or the first-deploy switch read it as none), but the '
                            'plan job read one: refusing to publish a site that would drop every earlier cell')
-    cells = {r['id']: {} for r in regions}
-    for r in (previous or {}).get('regions', []):
-        if r['id'] in cells:
-            covered = set(site.coverage(next(x for x in regions if x['id'] == r['id'])))
-            cells[r['id']].update({c: e for c, e in site.region_cells(r).items() if c in covered})
-    for (region, cell), (entry, _p) in built.items():
-        cells[region][cell] = site.manifest_entry(entry)
-    manifest = site.build_manifest(regions, cells)
-    files = site.site_files(manifest)
+    version = live['version'] if live else None
+    if plan_manifest_version is not UNSET and plan_manifest_version != version:
+        raise RuntimeError(f'the deploy read manifest version {version}, the plan job {plan_manifest_version}')
+    if not built and version != 1:
+        log('No cell was built this run: nothing to deploy.')
+        return _out(output, False)
+    covered = set(coverage)
+    cells = {c: e for c, e in (live['cells'] if live else {}).items() if c in covered}
+    for cell, (entry, _p) in built.items():
+        cells[cell] = site.manifest_entry(entry)
+    live_count = len(live['cells']) if live else 0
+    if len(cells) < live_count:
+        raise RuntimeError(f'the new site would hold {len(cells)} built cells, fewer than the live {live_count}')
+    tiles = site.build_tiles(areas, cells)
+    files = site.site_files(tiles)
     if len(files) > site.MAX_SITE_FILES:
         raise RuntimeError(f'the site would hold {len(files)} files, over the {site.MAX_SITE_FILES}-file limit')
     os.makedirs(out_dir)
     os.makedirs(state_dir)
-    kept, checks = {}, {'manifest': None, 'readback': {}}
-    if previous is not None:
-        live_cells = sum(len(site.region_cells(r)) for r in previous['regions'])
-        new_cells = sum(len(site.region_cells(r)) for r in manifest['regions'])
-        if new_cells < live_cells:
-            raise RuntimeError(f'the new manifest lists {new_cells} cells, fewer than the live {live_cells}')
+    kept, checks = {}, {'readback': {}, 'live': []}
+    if live is not None:
         live_hashes = fetch_hashes(site_url, get)
         listed = live_hashes or {}
         if live_hashes is not None:
-            if '/manifest.json' not in live_hashes:
-                raise RuntimeError('the live hashes.json lists no manifest.json')
-            checks['manifest'] = live_hashes['/manifest.json']
-        with open(os.path.join(state_dir, 'live-manifest.json'), 'wb') as fh:
-            fh.write(live_body[0])
-
-        def want(path, layer):
-            # the overviews are built from every t1-4; a file with no listed hash must be read to hash it
-            return layer == 't1-4' or '/' + path not in listed
-        fetched = fetch_previous(manifest, out_dir, set(built), site_url, get, want=want)
-        for path in fetched:
-            checks['readback']['/' + path] = listed.get('/' + path)
-        for path, _c, _q, _l, size in kept_files(manifest, set(built)):
-            if not want(path, _l):
-                kept['/' + path] = {'hash': listed['/' + path], 'bytes': size}
+            # the live files read must be the ones hashes.json was written with (the Node step checks)
+            ties = [('manifest.json', keep['manifest'])] + [(site.tile_index_path(t), b) for t, b in keep.get('tiles', {}).items()]
+            for name, body in ties:
+                if '/' + name not in live_hashes:
+                    raise RuntimeError(f'the live hashes.json lists no {name}')
+                f = os.path.join(state_dir, 'live', name)
+                os.makedirs(os.path.dirname(f), exist_ok=True)
+                with open(f, 'wb') as fh:
+                    fh.write(body)
+                checks['live'].append({'file': f'live/{name}', 'name': name, 'hash': live_hashes['/' + name]})
+        jobs = []
+        for c, e in cells.items():
+            if c in built:
+                continue
+            for path, q, l, size in site.files_of(c, e):
+                # where the live site holds it: its cells/ path, or its version 1 path on the first run
+                src = site.v1_path(live['v1_paths'][c], path) if version == 1 else path
+                if l == 't1-4' or '/' + src not in listed:
+                    jobs.append((src, path, c, q, l, size))
+                    checks['readback']['/' + path] = listed.get('/' + src)
+                else:
+                    kept['/' + path] = {'hash': listed['/' + src], 'bytes': size, **({'from': '/' + src} if src != path else {})}
+        fetched = read_back(jobs, out_dir, site_url, get)
         log(f'{len(fetched)} file(s) read back from the live site; {len(kept)} kept by their hash')
-    for (region, cell), (_e, paths) in built.items():
+    for cell, (_e, paths) in built.items():
         for (q, l), p in paths.items():
-            dst = os.path.join(out_dir, site.layer_path(region, cell, l) if q is None else site.quarter_path(region, cell, q, l))
+            dst = os.path.join(out_dir, site.cell_path(cell, l) if q is None else site.quarter_path(cell, q, l))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(p, dst)
-    # Each overview from the checked cell files now in out_dir; a live overview is never read back.
-    for r in manifest['regions']:
-        # cells in coverage order; a split cell's four t1-4 quarters, row then column order
-        cells_r = site.region_cells(r)
-        paths = [os.path.join(out_dir, f[0]) for c in r['coverage'] if c in cells_r
-                 for f in site.files_of(r['id'], c, cells_r[c]) if f[2] == 't1-4']
-        doc = overview.build(r['id'], paths)
-        if doc is not None:
-            data = overview.dumps(doc)
-            with open(os.path.join(out_dir, site.overview_path(r['id'])), 'wb') as fh:
+    # Each tile's overview from the checked t1-4 files now in out_dir; a live overview is never read back.
+    sizes, overviews = {}, {}
+    for t, doc in tiles.items():
+        built_cells = site.tile_built(doc)
+        if built_cells:
+            all_cells = {**doc['cells'], **doc['quartered']}
+            paths = [os.path.join(out_dir, f[0]) for c in built_cells for f in site.files_of(c, all_cells[c]) if f[2] == 't1-4']
+            odoc = overview.build_tile(t, paths)
+            data = overview.dumps(odoc)
+            os.makedirs(os.path.join(out_dir, 'tiles', t), exist_ok=True)
+            with open(os.path.join(out_dir, site.tile_overview_path(t)), 'wb') as fh:
                 fh.write(data)
-            r['overview'] = overview.entry(doc, data)
+            overviews[t] = overview.entry(odoc, data)
+        body = site.tile_index_bytes(doc)
+        os.makedirs(os.path.join(out_dir, 'tiles', t), exist_ok=True)
+        with open(os.path.join(out_dir, site.tile_index_path(t)), 'wb') as fh:
+            fh.write(body)
+        sizes[t] = len(body)
+    manifest = site.build_manifest(areas, tiles, sizes, overviews)
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as fh:
         fh.write(json.dumps(manifest, indent=1) + '\n')
-    for name, text in (('404.html', site.NOT_FOUND_HTML), ('LICENSE.txt', site.license_text(manifest))):
+    for name, text in (('404.html', site.NOT_FOUND_HTML), ('LICENSE.txt', site.license_text(cells))):
         with open(os.path.join(out_dir, name), 'w') as fh:
             fh.write(text)
     have = set()
@@ -407,7 +443,8 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, regions=None,
             json.dump(doc, fh, indent=1, sort_keys=True)
     with open(os.path.join(state_dir, '_headers'), 'w') as fh:
         fh.write(site.HEADERS)
-    log(f'Site assembled: {len(built)} cell(s) built this run, {len(files)} files.')
+    log(f'Site assembled: {len(built)} cell(s) built this run, {len(files)} files'
+        + (' (moved onto the grid from version 1)' if version == 1 else '') + '.')
     return _out(output, True)
 
 
@@ -433,7 +470,11 @@ def main(argv=None):
         had = os.environ.get('PLAN_HAD_MANIFEST')
         if had not in ('true', 'false'):
             raise ValueError('PLAN_HAD_MANIFEST is not true or false')
-        assemble(args.artifacts, args.out, jobs, had == 'true', first_deploy=first_deploy_on(), state_dir=args.state)
+        versions = {'1': 1, '2': 2, 'none': None}
+        if os.environ.get('PLAN_MANIFEST_VERSION') not in versions:
+            raise ValueError('PLAN_MANIFEST_VERSION is not 1, 2 or none')
+        assemble(args.artifacts, args.out, jobs, had == 'true', first_deploy=first_deploy_on(), state_dir=args.state,
+                 plan_manifest_version=versions[os.environ['PLAN_MANIFEST_VERSION']])
     except (RuntimeError, ValueError, OSError) as e:
         print(f'::error::{safe(str(e))}', file=sys.stderr)
         return 1
