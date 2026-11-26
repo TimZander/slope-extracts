@@ -11,7 +11,7 @@ import shutil
 
 from slope_extracts import cellfile, grid, publish, site
 
-COLORADO = {'id': 'colorado', 'name': 'Colorado',
+COLORADO = {'id': 'colorado', 'name': 'Colorado', 'source': '3dep',
             'boxes': [{'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}]}
 AREAS = [COLORADO]
 DILLON, OTHER = '158_-425', '158_-424'  # tiles 19_-54 and 19_-53 (column -424 starts the next tile)

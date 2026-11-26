@@ -14,7 +14,7 @@ from sitefake import COLORADO, DILLON, entry
 STAC = 'https://datacube.services.geo.ca/stac/api/search'
 DTM = 'https://canelevation-dem.s3.ca-central-1.amazonaws.com/hrdem-mosaic-1m/{}-mosaic-1m-dtm.tif'
 BC = {'id': 'british-columbia', 'name': 'British Columbia', 'source': 'hrdem',
-      'boxes': [{'south': 49.01, 'west': -117.49, 'north': 49.24, 'east': -117.26}]}  # 4 cells
+      'boxes': [{'south': 49.01, 'west': -117.49, 'north': 49.24, 'east': -117.26}]}  # 1 cell, 196_-470
 CO = dict(COLORADO, source='3dep')
 
 
@@ -50,7 +50,7 @@ def test_two_areas_of_one_source_may_share_a_cell():
 
 def test_each_cell_has_its_areas_source():
     got = site.cell_sources([CO, BC])
-    assert got[DILLON] == '3dep' and got['196_-470'] == 'hrdem' and len(got) == 464 + 4
+    assert got[DILLON] == '3dep' and got['196_-470'] == 'hrdem' and len(got) == 464 + 1
 
 
 def test_a_manifest_area_has_no_source():
@@ -205,7 +205,7 @@ def test_build_cell_main_takes_each_cells_source_from_the_areas(tmp_path, monkey
     assert seen == {DILLON: '3dep', '196_-470': 'hrdem'}
 
 
-@pytest.mark.parametrize('cell, epsg', [('230_-540', 'EPSG:26907'), ('220_-520', 'EPSG:26909'), ('205_-471', 'EPSG:26911')])
+@pytest.mark.parametrize('cell, epsg', [('236_-556', 'EPSG:26907'), ('220_-520', 'EPSG:26909'), ('205_-471', 'EPSG:26911')])
 def test_bc_cells_have_their_nad83_utm_zone(cell, epsg):
     assert grid.utm_epsg(cell) == epsg
 

@@ -26,7 +26,7 @@ import time
 from rasterio import Affine
 from rasterio.warp import transform_bounds
 
-from . import cellfile, classes, dem, grid, publish, recipe, sources
+from . import cellfile, classes, dem, grid, publish, recipe, site, sources
 
 # The deploy job's limits per layer file: gzip bytes, and JSON bytes unpacked.
 MAX_FILE_BYTES = publish.MAX_FILE_BYTES
@@ -43,8 +43,10 @@ def _layer_bands(z, transform, crs, cell_id, p):
     return classes.polygons(cls, transform, crs, cell_id, p['edges'], p['keep'], p['simplify'], p['min_area'])
 
 
-def build(cell_id, out_dir, dem_paths=None, log=print, today=None):
+def build(cell_id, out_dir, dem_paths=None, log=print, today=None, source='3dep'):
     grid.parse_cell(cell_id)
+    if source not in ('3dep', 'hrdem'):
+        raise ValueError(f'cell {cell_id}: unknown source {source!r}')
     t_start = time.monotonic()
     if dem_paths:
         lidar, fallback, projects = list(dem_paths), [], []
@@ -52,10 +54,20 @@ def build(cell_id, out_dir, dem_paths=None, log=print, today=None):
         # the buffered frame in lon/lat: every tile touching it is read
         crs, ft, width, height = dem.utm_frame(cell_id, 2.0)
         lb = transform_bounds(crs, 'EPSG:4326', ft.c, ft.f - height * 2.0, ft.c + width * 2.0, ft.f)
-        tiles = sources.lidar_tiles(lb[1], lb[0], lb[3], lb[2])
-        lidar = [t['url'] for t in tiles]
-        projects = sorted({t['project'] for t in tiles})
-        fallback = sources.dem10m_tiles(lb[1], lb[0], lb[3], lb[2])
+        if source == 'hrdem':
+            # NRCan's lidar only, no fill ("Elevation in an hrdem area comes from NRCan lidar only"); the
+            # mosaic search must answer before no project can mean no lidar.
+            lidar = sources.hrdem_tiles(lb[1], lb[0], lb[3], lb[2])
+            projects = sources.hrdem_projects(lb[1], lb[0], lb[3], lb[2])
+            fallback = []
+            if not projects:
+                log(f'{cell_id}: no NRCan lidar project meets the frame: built empty, nothing read')
+                return _write_empty(cell_id, out_dir, today)
+        else:
+            tiles = sources.lidar_tiles(lb[1], lb[0], lb[3], lb[2])
+            lidar = [t['url'] for t in tiles]
+            projects = sorted({t['project'] for t in tiles})
+            fallback = sources.dem10m_tiles(lb[1], lb[0], lb[3], lb[2])
         log(f'{cell_id}: {len(lidar)} lidar tile(s) from {", ".join(projects) or "no project"}')
 
     exists = None if dem_paths else _http_exists
@@ -181,6 +193,23 @@ def _write_quarters(cell_id, cell_dir, tiers, log):
     return out
 
 
+def _write_empty(cell_id, out_dir, today=None):
+    """An hrdem cell no lidar project meets: every layer empty, so its folder holds only entry.json."""
+    cell_dir = os.path.join(out_dir, cell_id)
+    os.makedirs(cell_dir, exist_ok=True)
+    entry = {
+        'cell': cell_id,
+        'recipe': recipe.RECIPE,
+        'built': (today or datetime.date.today()).isoformat(),
+        'sources': {'lidar': 0, 'dem10m': 0, 'none': 1},
+        'projects': [],
+        'layers': {name: copy.deepcopy(EMPTY) for name in recipe.LAYERS},
+    }
+    with open(os.path.join(cell_dir, 'entry.json'), 'w') as fh:
+        json.dump(entry, fh, indent=1)
+    return entry
+
+
 def _http_exists(url):
     import urllib.request
     req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': sources.USER_AGENT})
@@ -198,7 +227,13 @@ def main(argv=None):
     ap.add_argument('cells', nargs='+')
     ap.add_argument('--out', required=True)
     ap.add_argument('--dem', action='append')
+    ap.add_argument('--areas', default='areas.json')
     args = ap.parse_args(argv)
+    try:
+        cell_source = site.cell_sources(site.load_areas(args.areas))
+    except (OSError, ValueError) as e:
+        print(f'::error::the areas list is not valid: {e}', file=sys.stderr)
+        return 1
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, 'jobs.txt'), 'w') as fh:
         fh.write(' '.join(args.cells) + '\n')
@@ -206,7 +241,7 @@ def main(argv=None):
     for item in args.cells:
         c = item
         try:
-            build(c, args.out, args.dem)
+            build(c, args.out, args.dem, source=cell_source.get(c, '3dep'))
         except Exception as e:  # one cell's failure leaves the others' files; named, then the run fails
             print(f'::error::cell {c} failed: {e}', file=sys.stderr)
             failed.append(c)
