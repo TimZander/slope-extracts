@@ -127,13 +127,16 @@ def _pad_gzip(monkeypatch, layer, extra):
     monkeypatch.setattr(cellfile, 'compress', compress)
 
 
-def _pad_json(monkeypatch, layer, extra):
-    """Makes `layer`'s JSON `extra` bytes longer (trailing whitespace: still valid JSON)."""
+def _pad_json(monkeypatch, layer, extra=0, to=None, cell=None):
+    """Makes `layer`'s JSON `extra` bytes longer, or exactly `to` bytes (trailing whitespace: still
+    valid JSON); only in `cell` when given."""
     real = cellfile.json_bytes
 
     def json_bytes(doc):
         raw = real(doc)
-        return raw + b' ' * extra if doc['layer'] == layer else raw
+        if doc['layer'] != layer or (cell and doc['cell'] != cell):
+            return raw
+        return raw + b' ' * ((to - len(raw)) if to is not None else extra)
     monkeypatch.setattr(cellfile, 'json_bytes', json_bytes)
 
 
@@ -153,6 +156,23 @@ def test_build_an_oversize_2m_layer_is_left_out(mini_cell, cone_dem, tmp_path, m
     assert len(warnings) == 1 and mini_cell in warnings[0] and 't0-2m' in warnings[0]
 
 
+def test_build_main_does_not_fail_for_a_left_out_2m_layer(mini_cell, cone_dem, tmp_path, monkeypatch, capsys):
+    _pad_gzip(monkeypatch, 't0-2m', build_cell.MAX_FILE_BYTES)
+    out = tmp_path / 'out'
+    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem]) == 0
+    assert not (out / 'failed.json').exists()
+    assert f'::warning::cell {mini_cell}' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('size, kept', [(2_000_000, True), (2_000_001, False)])
+def test_build_a_2m_layer_is_left_out_only_over_the_limit(mini_cell, cone_dem, tmp_path, monkeypatch, size, kept):
+    monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
+    _pad_json(monkeypatch, 't0-2m', to=size)
+    entry = build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=lambda *_: None)
+    assert (tmp_path / mini_cell / 't0-2m.json.gz').exists() is kept
+    assert (entry['layers']['t0-2m']['bytes'] > 0) is kept
+
+
 def test_build_a_2m_layer_whose_json_is_too_large_is_left_out(mini_cell, cone_dem, tmp_path, monkeypatch):
     monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
     _pad_json(monkeypatch, 't0-2m', 2_000_001)
@@ -167,6 +187,7 @@ def test_build_an_oversize_3m_layer_fails_the_cell(mini_cell, cone_dem, tmp_path
     _pad_gzip(monkeypatch, 't0-3m', build_cell.MAX_FILE_BYTES)
     with pytest.raises(RuntimeError, match='t0-3m is .* over the .*-byte limit per file'):
         build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=lambda *_: None)
+    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(tmp_path / 'o'), '--dem', cone_dem]) == 1
 
 
 def test_build_a_zoomed_out_layer_whose_json_is_too_large_fails_and_leaves_no_folder(
@@ -180,6 +201,22 @@ def test_build_a_zoomed_out_layer_whose_json_is_too_large_fails_and_leaves_no_fo
     assert sorted(p.name for p in out.iterdir()) == ['failed.json', 'jobs.txt']
     assert json.loads((out / 'failed.json').read_text()) == [mini_cell]
     assert 'cell 158_-425 failed' in capsys.readouterr().err
+
+
+def test_a_cell_that_fails_after_writing_a_layer_does_not_block_the_deploy(
+        mini_cell, cone_dem, tmp_path, monkeypatch, capsys):
+    # requirement: A failed cell keeps its previous files, "A cell fails after writing a layer"
+    from slope_extracts import publish
+    other = '158_-424'
+    monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
+    _pad_json(monkeypatch, 't1-4', 2_000_001, cell=mini_cell)
+    jobs = f'colorado/{mini_cell} colorado/{other}'
+    out = tmp_path / 'artifacts' / 'cells-0'
+    assert build_cell.main(jobs.split() + ['--out', str(out), '--dem', cone_dem]) == 1
+    region = [{'id': 'colorado', 'name': 'Colorado',
+               'bounds': {'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}}]
+    built = publish.read_artifacts(str(tmp_path / 'artifacts'), region, [jobs])
+    assert set(built) == {('colorado', other)}
 
 
 def test_build_limits_are_the_deploy_limits():

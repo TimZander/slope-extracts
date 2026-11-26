@@ -356,9 +356,33 @@ def test_rejects_a_malformed_ring(tmp_path):
 
 
 def test_rejects_an_oversized_file(tmp_path, monkeypatch):
+    root = artifact(tmp_path, 0, [DILLON])
+    limit = max(os.path.getsize(p) for p in (root / DILLON).iterdir())
+    (root / DILLON / 't1-4.json.gz').write_bytes(b'x' * (limit + 1))
+    monkeypatch.setattr(publish, 'MAX_FILE_BYTES', limit)
+    with pytest.raises(RuntimeError, match='t1-4.json.gz is over'):
+        prep(tmp_path)
+
+
+def test_rejects_an_oversized_entry(tmp_path, monkeypatch):
     artifact(tmp_path, 0, [DILLON])
     monkeypatch.setattr(publish, 'MAX_FILE_BYTES', 10)
-    with pytest.raises(RuntimeError, match='limit'):
+    with pytest.raises(RuntimeError, match='entry.json is over'):
+        prep(tmp_path)
+
+
+@pytest.mark.parametrize('kind', ['symlink', 'dir', 'fifo', 'absent'])
+def test_rejects_an_entry_that_is_not_a_regular_file(tmp_path, kind):
+    root = artifact(tmp_path, 0, [DILLON])
+    ep = root / DILLON / 'entry.json'
+    os.remove(ep)
+    if kind == 'symlink':
+        os.symlink('/etc/passwd', ep)
+    elif kind == 'dir':
+        ep.mkdir()
+    elif kind == 'fifo':
+        os.mkfifo(ep)
+    with pytest.raises(RuntimeError, match='entry.json is not a regular file'):
         prep(tmp_path)
 
 

@@ -54,6 +54,11 @@ and left out again only if it is still too large.
 
 - Spec review, round 1 (2026-11-25): 0 blockers, 5 should-fix, 5 consider; all taken in the spec except
   renaming "A cell is three gzip JSON layer files" (a REMOVED plus ADDED for a name only). No round 2.
+- Conformance review, round 1 (2026-11-25): 0 hard fails, 3 soft fails (tests: the failed cell chained
+  to the deploy, `main()`'s exit codes, the limit's boundary); all fixed in tests.
+- Security review of the deploy-job change (a read-only review agent, 2026-11-25): no blocker; the
+  layer-file size test had become an `entry.json` size test, and a non-regular `entry.json` had no attack
+  test; both fixed in tests.
 
 ## Risks
 
