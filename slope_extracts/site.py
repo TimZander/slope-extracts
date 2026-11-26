@@ -4,7 +4,9 @@ Standard library only (the plan and deploy jobs install nothing).
 
 Site layout, deployed to Cloudflare Pages (project slope-extracts) by Direct Upload:
     manifest.json                       every region, its coverage and its built cells
-    <region>/<cell>/<layer>.json.gz     one file per built cell and layer (see cellfile.py)
+    <region>/<cell>/<layer>.json.gz     one file per built whole cell and layer (see cellfile.py)
+    <region>/<cell>/<quarter>/<layer>.json.gz
+                                        a split cell's: one per quarter and layer (manifest `quartered`)
     <region>/overview.json.gz           each region's built cells' tier 4 (see overview.py)
     _headers, 404.html, LICENSE.txt
 """
@@ -72,6 +74,29 @@ def layer_path(region_id, cell_id, layer):
     return f'{region_id}/{cell_id}/{layer}.json.gz'
 
 
+def quarter_path(region_id, cell_id, quarter, layer):
+    return f'{region_id}/{cell_id}/{quarter}/{layer}.json.gz'
+
+
+def is_split(entry):
+    """Whether a checked entry is a split cell's (published as four quarters)."""
+    return 'quarters' in entry
+
+
+def files_of(region_id, cell_id, entry):
+    """[(site path, quarter or None, layer, bytes)] of a checked entry's files, left-out layers excluded:
+    a split cell's by quarter (row then column order), then layer."""
+    if is_split(entry):
+        return [(quarter_path(region_id, cell_id, q, l), q, l, qe['layers'][l]['bytes'])
+                for q, qe in entry['quarters'].items() for l in present_layers(qe)]
+    return [(layer_path(region_id, cell_id, l), None, l, entry['layers'][l]['bytes']) for l in present_layers(entry)]
+
+
+def region_cells(region):
+    """A manifest region's built cells, whole and split: {cell: entry} (`quartered` may be absent)."""
+    return {**region['cells'], **region.get('quartered', {})}
+
+
 def overview_path(region_id):
     return f'{region_id}/overview.json.gz'
 
@@ -86,12 +111,17 @@ def present_layers(entry):
     return [l for l in LAYERS if not left_out(entry['layers'][l])]
 
 
-def validate_entry(e, cell_id=None):
-    """A cell's entry as a build job wrote it (or as the manifest holds it, without `cell`)."""
+def validate_entry(e, cell_id=None, key=None, split=None):
+    """A cell's entry as a build job wrote it (or as the manifest holds it, without `cell`).
+
+    A whole cell's has `layers` and no `quarters`; a split cell's `quarters` (exactly its four, each
+    exactly `layers`) and no `layers`. `key` is the cell the entry is for (default `cell_id`); `split`
+    requires one form (None: either)."""
     if not _is_obj(e):
         raise ValueError('an entry is not an object')
     if cell_id is not None and e.get('cell') != cell_id:
         raise ValueError(f'the entry names cell {e.get("cell")!r}, not {cell_id}')
+    key = cell_id if key is None else key
     if type(e.get('recipe')) is not int or e['recipe'] < 1:
         raise ValueError('recipe must be a positive integer')
     if not isinstance(e.get('built'), str) or not DATE.fullmatch(e['built']):
@@ -108,31 +138,58 @@ def validate_entry(e, cell_id=None):
         raise ValueError('sources must be the lidar, dem10m and none fractions')
     if not isinstance(e.get('projects'), list) or not all(isinstance(p, str) and re.fullmatch(r'[A-Za-z0-9_]{1,100}', p) for p in e['projects']):
         raise ValueError('projects must be a list of 3DEP project names')
-    layers = e.get('layers')
+    has_layers, has_quarters = 'layers' in e, 'quarters' in e
+    if has_layers == has_quarters:
+        raise ValueError('an entry must have exactly one of layers (a whole cell) and quarters (a split cell)')
+    if split is not None and has_quarters != split:
+        raise ValueError('a cells entry must have layers, a quartered entry quarters')
+    if has_layers:
+        _validate_layers(e['layers'])
+        return e
+    if key is None:
+        raise ValueError('a split entry needs its cell')
+    quarters = e['quarters']
+    if not _is_obj(quarters) or list(quarters) != grid.quarters(key):
+        raise ValueError(f'quarters must be exactly {", ".join(grid.quarters(key))}, in that order')
+    for q, qe in quarters.items():
+        if not _is_obj(qe) or set(qe) != {'layers'}:
+            raise ValueError(f'quarter {q} must have exactly layers')
+        _validate_layers(qe['layers'], f'quarter {q}: ')
+    return e
+
+
+def _validate_layers(layers, where=''):
     if not _is_obj(layers) or set(layers) != set(LAYERS):
-        raise ValueError(f'layers must be exactly {", ".join(LAYERS)}')
+        raise ValueError(f'{where}layers must be exactly {", ".join(LAYERS)}')
     for name, l in layers.items():
         if not _is_obj(l) or set(l) != {'bytes', 'tiers'} or type(l['bytes']) is not int or l['bytes'] < 0 or not _is_obj(l['tiers']):
-            raise ValueError(f'layer {name} must have exactly bytes and tiers')
-        for t, s in l['tiers'].items():
-            if t not in {'0', '1', '2', '3', '4'} or not _is_obj(s) or set(s) != {'polygons', 'points'} or not all(type(v) is int and v >= 0 for v in s.values()):
-                raise ValueError(f'layer {name}: tier {t!r} must have polygon and point counts')
+            raise ValueError(f'{where}layer {name} must have exactly bytes and tiers')
+        for t, st in l['tiers'].items():
+            if t not in {'0', '1', '2', '3', '4'} or not _is_obj(st) or set(st) != {'polygons', 'points'} or not all(type(v) is int and v >= 0 for v in st.values()):
+                raise ValueError(f'{where}layer {name}: tier {t!r} must have polygon and point counts')
         if l['bytes'] == 0 and (name != OPTIONAL_LAYER or l['tiers'] != LEFT_OUT_TIERS):
-            raise ValueError(f'layer {name}: bytes 0 marks a left-out layer, allowed only on {OPTIONAL_LAYER} '
+            raise ValueError(f'{where}layer {name}: bytes 0 marks a left-out layer, allowed only on {OPTIONAL_LAYER} '
                              f'with tiers {json.dumps(LEFT_OUT_TIERS)}')
-    return e
+
+
+def _layers_copy(layers):
+    return {l: {'bytes': layers[l]['bytes'],
+                'tiers': {t: {'polygons': v['polygons'], 'points': v['points']} for t, v in layers[l]['tiers'].items()}}
+            for l in LAYERS}
 
 
 def manifest_entry(e):
     """A checked entry, rebuilt field by field so no unchecked key reaches the manifest."""
-    return {
+    out = {
         'recipe': e['recipe'], 'built': e['built'],
         'sources': {k: e['sources'][k] for k in ('lidar', 'dem10m', 'none')},
         'projects': list(e['projects']),
-        'layers': {l: {'bytes': e['layers'][l]['bytes'],
-                       'tiers': {t: {'polygons': v['polygons'], 'points': v['points']} for t, v in e['layers'][l]['tiers'].items()}}
-                   for l in LAYERS},
     }
+    if is_split(e):
+        out['quarters'] = {q: {'layers': _layers_copy(qe['layers'])} for q, qe in e['quarters'].items()}
+    else:
+        out['layers'] = _layers_copy(e['layers'])
+    return out
 
 
 def validate_manifest(m):
@@ -145,21 +202,33 @@ def validate_manifest(m):
             raise ValueError('a manifest region has no valid id')
         if not isinstance(r.get('coverage'), list) or not _is_obj(r.get('cells')):
             raise ValueError(f'region {r["id"]}: coverage and cells are required')
+        # `quartered` came with split cells; a manifest from before them has none
+        if not _is_obj(r.get('quartered', {})):
+            raise ValueError(f'region {r["id"]}: quartered must be an object')
         for c, e in r['cells'].items():
             grid.parse_cell(c)
-            validate_entry(e)
+            validate_entry(e, key=c, split=False)
+        for c, e in r.get('quartered', {}).items():
+            grid.parse_cell(c)
+            if c in r['cells']:
+                raise ValueError(f'region {r["id"]}: cell {c} is in both cells and quartered')
+            validate_entry(e, key=c, split=True)
     return m
 
 
 def build_manifest(regions, cells_by_region):
-    """cells_by_region: {region id: {cell id: manifest entry}}."""
+    """cells_by_region: {region id: {cell id: manifest entry}}, whole and split; a split cell's entry goes
+    to the region's `quartered`, a whole one's to `cells`."""
     out = []
     for r in regions:
         cov = coverage(r)
+        covered = set(cov)
         cells = cells_by_region.get(r['id'], {})
+        listed = [c for c in sorted(cells, key=grid.compare_key) if c in covered]
         out.append({
             'id': r['id'], 'name': r['name'], 'bounds': dict(r['bounds']), 'coverage': cov,
-            'cells': {c: cells[c] for c in sorted(cells, key=grid.compare_key) if c in set(cov)},
+            'cells': {c: cells[c] for c in listed if not is_split(cells[c])},
+            'quartered': {c: cells[c] for c in listed if is_split(cells[c])},
         })
     return {'format': 'slope-extract', 'version': 1, 'attribution': ATTRIBUTION,
             'cellFormat': {'format': 'slope-cell', 'version': 1}, 'layers': list(LAYERS), 'regions': out}
@@ -169,7 +238,9 @@ def plan(regions, previous_manifest, current_recipe, max_cells, per_job, today=N
     """The cells this run builds, as job chunks: [[(region, cell), ...], ...].
 
     A cell is built when it is in its region's coverage (or `only` list) and the live site lacks it,
-    built it with another recipe, or built it more than `refresh_days` ago (the yearly refresh). At
+    built it with another recipe, or built it more than `refresh_days` ago (the yearly refresh), or
+    lists it whole with a layer left out (built before split cells; a split cell's left-out quarter
+    layer would only build the same again). At
     most `max_cells` per run, in coverage order, so one run's build and upload stay bounded; the next
     run picks up the rest.
     """
@@ -178,13 +249,14 @@ def plan(regions, previous_manifest, current_recipe, max_cells, per_job, today=N
     refresh_days = REFRESH_DAYS if refresh_days is None else refresh_days
     prev = {}
     for r in (previous_manifest or {}).get('regions', []):
-        prev[r['id']] = r.get('cells', {})
+        prev[r['id']] = region_cells(r)
     todo = []
     for r in regions:
         for c in r.get('only') or coverage(r):
             e = prev.get(r['id'], {}).get(c)
             if (e is None or e.get('recipe') != current_recipe
-                    or (today - datetime.date.fromisoformat(e['built'])).days > refresh_days):
+                    or (today - datetime.date.fromisoformat(e['built'])).days > refresh_days
+                    or (not is_split(e) and len(present_layers(e)) < len(LAYERS))):
                 todo.append((r['id'], c))
     todo = todo[:max_cells]
     return [todo[i:i + per_job] for i in range(0, len(todo), per_job)]
@@ -216,7 +288,7 @@ NOT_FOUND_HTML = """<!doctype html>
 
 
 def license_text(manifest):
-    projects = sorted({p for r in manifest['regions'] for e in r['cells'].values() for p in e['projects']})
+    projects = sorted({p for r in manifest['regions'] for e in region_cells(r).values() for p in e['projects']})
     lines = '\n'.join(f'- {p}' for p in projects) or '- (none yet)'
     return f"""Slope-angle cells: sources and licence
 
@@ -236,9 +308,10 @@ def site_files(manifest):
     """Every path the manifest names, plus the fixed files."""
     paths = ['manifest.json', '_headers', '404.html', 'LICENSE.txt']
     for r in manifest['regions']:
-        for c, e in r['cells'].items():
-            paths += [layer_path(r['id'], c, l) for l in present_layers(e)]
-        if r['cells']:
+        cells = region_cells(r)
+        for c, e in cells.items():
+            paths += [f[0] for f in files_of(r['id'], c, e)]
+        if cells:
             paths.append(overview_path(r['id']))
     return paths
 

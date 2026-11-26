@@ -57,5 +57,23 @@ def from_units(units):
     return units / UNITS_PER_DEG
 
 
+def quarters(cell_id):
+    """A cell's four 0.125-degree quarters, "<qrow>_<qcol>" with qrow = floor(lat * 8) and qcol =
+    floor(lon * 8), in row then column order (south-west first), as cells are ordered."""
+    row, col = parse_cell(cell_id)
+    return [f'{2 * row + i}_{2 * col + j}' for i in (0, 1) for j in (0, 1)]
+
+
+def quarter_bounds(cell_id, quarter):
+    """(south, west, north, east) in degrees of one of the cell's quarters: the cell cut at its middle."""
+    qs = quarters(cell_id)
+    if quarter not in qs:
+        raise ValueError(f'{quarter!r} is not a quarter of cell {cell_id}')
+    i, j = divmod(qs.index(quarter), 2)
+    south, west, north, east = cell_bounds(cell_id)
+    ym, xm = (south + north) / 2, (west + east) / 2
+    return (south, ym)[i], (west, xm)[j], (ym, north)[i], (xm, east)[j]
+
+
 def compare_key(cell_id):
     return parse_cell(cell_id)

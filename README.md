@@ -8,9 +8,12 @@ USGS 3D Elevation Program (3DEP) and published as a static site at <https://slop
   `regions.json` that the site lacks or built with an older recipe, at most 48 per run, three per job:
   - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic.
   - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes three
-    gzip JSON files per 0.25° cell. A `t0-2m` file too large to publish (over 20 MiB of gzip or 64 MiB of
-    JSON) is left out with a warning; the manifest then gives that layer `bytes` 0 and no polygons, and
-    the site holds no file for it.
+    gzip JSON files per 0.25° cell. A cell with a file too large to publish (over 20 MiB of gzip or
+    64 MiB of JSON) is split: all three layers are written for each of its four 0.125° quarters, at
+    `<region>/<cell>/<quarter>/<layer>.json.gz`, and the manifest lists it under the region's
+    `quartered`, not `cells`, with per-quarter layers. A quarter's `t0-2m` still too large is left out
+    with a warning; the manifest then gives that layer `bytes` 0 and no polygons, and the site holds no
+    file for it.
   - A deploy job checks them and reads the rest of the site back from the live site. It writes each
     region's `overview.json.gz` (every built cell's tier 4, for the app's zoomed-out view), then uploads
     the whole site with `wrangler pages deploy` (Direct Upload sends only changed files).

@@ -13,7 +13,7 @@ DILLON, OTHER = '158_-425', '158_-424'
 def entry(cell, recipe=1):
     return {'cell': cell, 'recipe': recipe, 'built': '2026-11-23', 'sources': {'lidar': 1.0, 'dem10m': 0.0, 'none': 0.0},
             'projects': ['CO_Central_Western_2016'],
-            'layers': {l: {'bytes': 0, 'tiers': {}} for l in site.LAYERS}}
+            'layers': {l: {'bytes': 9, 'tiers': {}} for l in site.LAYERS}}
 
 
 # --- regions and plan -------------------------------------------------------------------------
@@ -759,3 +759,427 @@ def test_a_live_cell_without_its_2m_layer_is_read_back_without_it(live, tmp_path
     assert not (out2 / f'colorado/{DILLON}/t0-2m.json.gz').exists()
     after = json.loads((out2 / 'manifest.json').read_text())['regions'][0]['cells']
     assert after[DILLON] == before and set(after) == {DILLON, OTHER}
+
+
+# --- split cells (change split-dense-cells) ---------------------------------------------------
+
+QUARTERS = ['316_-850', '316_-849', '317_-850', '317_-849']  # of DILLON, qrow then qcol
+
+
+def q_ring(cell, quarter, tag=0):
+    s, w, _n, _e = grid.quarter_bounds(cell, quarter)
+    y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
+    return [[(y + tag, x), (y + 10, x), (y + 10, x + 10)]]
+
+
+def fake_split_cell(root, cell, tag=0, left_out=None, t4=None, projects=None):
+    """A split cell as build_cell writes it; left_out: {quarter: layers}; t4: {quarter: polygon count}."""
+    cdir = root / cell
+    cdir.mkdir(parents=True)
+    quarters = {}
+    for q in grid.quarters(cell):
+        (cdir / q).mkdir()
+        layers = {}
+        for l in site.LAYERS:
+            if l in (left_out or {}).get(q, ()):
+                layers[l] = dict(LEFT_OUT)
+                continue
+            if l.startswith('t0'):
+                tiers = {0: {30: [q_ring(cell, q, tag)]}}
+            else:
+                n = 1 if t4 is None else t4[q]
+                tiers = {4: {30: [q_ring(cell, q, 20 * i + tag) for i in range(n)]}}
+            data = cellfile.dumps(cellfile.build(cell, l, tiers, quarter=q))
+            (cdir / q / f'{l}.json.gz').write_bytes(data)
+            layers[l] = {'bytes': len(data), 'tiers': {}}
+        quarters[q] = {'layers': layers}
+    e = {k: v for k, v in entry(cell).items() if k != 'layers'}
+    e['quarters'] = quarters
+    if projects:
+        e['projects'] = projects
+    (cdir / 'entry.json').write_text(json.dumps(e))
+    return cdir
+
+
+def split_artifact(tmp_path, n, whole=(), split=(), **kw):
+    root = tmp_path / 'artifacts' / f'cells-{n}'
+    if (tmp_path / 'artifacts').exists():
+        shutil.rmtree(tmp_path / 'artifacts')
+    root.mkdir(parents=True)
+    (root / 'jobs.txt').write_text(' '.join(f'colorado/{c}' for c in covered_order(list(whole) + list(split))))
+    for c in whole:
+        fake_cell(root, c)
+    for c in split:
+        fake_split_cell(root, c, **kw)
+    return root
+
+
+def quarter_files(cell, layers=site.LAYERS, skip=()):
+    return [f'colorado/{cell}/{q}/{l}.json.gz' for q in grid.quarters(cell) for l in layers if (q, l) not in skip]
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("A region with one split cell")
+# Requirement: A quarter file names its cell and its quarter
+def test_a_split_cell_is_published_under_quartered(live, tmp_path):
+    split_artifact(tmp_path, 0, whole=[OTHER], split=[DILLON])
+    changed, out = run(tmp_path, live)
+    assert changed is True
+    manifest = site.validate_manifest(json.loads((out / 'manifest.json').read_text()))
+    r = manifest['regions'][0]
+    assert list(r['cells']) == [OTHER]
+    assert list(r['quartered']) == [DILLON]
+    e = r['quartered'][DILLON]
+    assert set(e) == {'recipe', 'built', 'sources', 'projects', 'quarters'}
+    assert list(e['quarters']) == QUARTERS
+    for q in QUARTERS:
+        assert set(e['quarters'][q]) == {'layers'}
+        for l in site.LAYERS:
+            p = out / f'colorado/{DILLON}/{q}/{l}.json.gz'
+            assert e['quarters'][q]['layers'][l]['bytes'] == p.stat().st_size
+            doc = json.loads(__import__('gzip').decompress(p.read_bytes()))
+            assert (doc['cell'], doc['quarter'], doc['layer']) == (DILLON, q, l)
+    assert not any((out / f'colorado/{DILLON}/{l}.json.gz').exists() for l in site.LAYERS)
+    files = sorted(str(p.relative_to(out)) for p in out.rglob('*') if p.is_file())
+    assert sorted(site.site_files(manifest)) == files
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("No split cell")
+# Requirement: The manifest lists each region's coverage and built cells ("A pilot run")
+def test_a_region_with_no_split_cell_has_an_empty_quartered(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    assert json.loads((out / 'manifest.json').read_text())['regions'][0]['quartered'] == {}
+
+
+def split_manifest(extra_region=None):
+    e = site.manifest_entry({**{k: v for k, v in entry(DILLON).items() if k != 'layers'},
+                             'quarters': {q: {'layers': {l: {'bytes': 9, 'tiers': {}} for l in site.LAYERS}} for q in QUARTERS}})
+    m = site.build_manifest(REGION, {'colorado': {DILLON: e}})
+    if extra_region:
+        m['regions'][0].update(extra_region)
+    return m
+
+
+def fetch_body(m):
+    return publish.fetch_manifest('https://slope.test', FakeSite({'manifest.json': json.dumps(m).encode()}).get)
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("A live manifest from before this change")
+def test_a_live_manifest_without_quartered_is_read_as_none_split():
+    m = site.build_manifest(REGION, {'colorado': {DILLON: site.manifest_entry(entry(DILLON))}})
+    del m['regions'][0]['quartered']
+    assert fetch_body(m) is not None
+    import datetime
+    assert site.plan([dict(REGION[0], only=[DILLON])], m, 1, 48, 3, today=datetime.date(2026, 11, 24)) == []
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones (live-manifest attacks)
+@pytest.mark.parametrize('bad', ['both', 'three', 'layers', 't1-4 marker', 'quarter key', 'not a cell'])
+def test_an_invalid_live_quartered_entry_fails_the_plan(bad):
+    m = split_manifest()
+    r = m['regions'][0]
+    e = r['quartered'][DILLON]
+    if bad == 'both':
+        r['cells'][DILLON] = site.manifest_entry(entry(DILLON))
+    elif bad == 'three':
+        del e['quarters'][QUARTERS[3]]
+    elif bad == 'layers':
+        e['layers'] = e['quarters'][QUARTERS[0]]['layers']
+    elif bad == 't1-4 marker':
+        e['quarters'][QUARTERS[0]]['layers']['t1-4'] = dict(LEFT_OUT)
+    elif bad == 'quarter key':
+        e['quarters'][QUARTERS[0]]['href'] = 'x'
+    elif bad == 'not a cell':
+        r['quartered'] = {'../x': e}
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch_body(m)
+
+
+def test_a_cells_entry_with_quarters_fails_the_plan():
+    m = site.build_manifest(REGION, {'colorado': {OTHER: site.manifest_entry(entry(OTHER))}})
+    m['regions'][0]['cells'][OTHER]['quarters'] = split_manifest()['regions'][0]['quartered'][DILLON]['quarters']
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch_body(m)
+
+
+# Requirement: A run builds missing and stale cells, at most 48
+def test_plan_rebuilds_a_whole_cell_with_a_layer_left_out_but_not_a_split_one():
+    import datetime
+    today = datetime.date(2026, 11, 23)
+    whole = site.manifest_entry(dict(entry(OTHER), layers={**entry(OTHER)['layers'], 't0-2m': dict(LEFT_OUT)}))
+    split = split_manifest()['regions'][0]['quartered'][DILLON]
+    split['quarters'][QUARTERS[0]]['layers']['t0-2m'] = dict(LEFT_OUT)
+    m = site.build_manifest(REGION, {'colorado': {OTHER: whole, DILLON: split}})
+    regions = [dict(REGION[0], only=[DILLON, OTHER])]
+    assert site.plan(regions, m, 1, 48, 3, today=today) == [[('colorado', OTHER)]]
+    # a split cell counts as built: it isn't planned again while it is current
+    assert site.plan([dict(REGION[0], only=[DILLON])], split_manifest(), 1, 48, 3, today=today) == []
+    # and is planned again when stale
+    assert site.plan([dict(REGION[0], only=[DILLON])], split_manifest(), 2, 48, 3, today=today) == [[('colorado', DILLON)]]
+
+
+# Requirement: Files read back from the live site are checked ("A live split cell")
+def test_a_live_split_cell_is_read_back_by_its_quarters(live, tmp_path):
+    split_artifact(tmp_path, 0, split=[DILLON], left_out={QUARTERS[1]: ('t0-2m',)})
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    before = json.loads(live.files['manifest.json'])['regions'][0]['quartered'][DILLON]
+    live.requests.clear()
+    artifact(tmp_path, 0, [OTHER])
+    changed, out2 = run(tmp_path, live, 'site2')
+    assert changed is True
+    want = quarter_files(DILLON, skip={(QUARTERS[1], 't0-2m')})
+    assert set(want) <= set(live.requests)
+    assert f'colorado/{DILLON}/{QUARTERS[1]}/t0-2m.json.gz' not in live.requests
+    r = json.loads((out2 / 'manifest.json').read_text())['regions'][0]
+    assert r['quartered'][DILLON] == before and list(r['cells']) == [OTHER]
+
+
+def test_a_tampered_live_quarter_fails_the_deploy(live, tmp_path):
+    split_artifact(tmp_path, 0, split=[DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    live.files[f'colorado/{DILLON}/{QUARTERS[2]}/t1-4.json.gz'] = b'x' * 10
+    artifact(tmp_path, 0, [OTHER])
+    with pytest.raises(RuntimeError, match='bytes, not the'):
+        run(tmp_path, live, 'site2')
+
+
+def test_a_live_quarter_from_another_quarter_fails_the_deploy(live, tmp_path):
+    split_artifact(tmp_path, 0, split=[DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    a, b = (f'colorado/{DILLON}/{q}/t0-3m.json.gz' for q in QUARTERS[:2])
+    live.files[a] = live.files[b]  # and its size in the manifest: a swap only the quarter check sees
+    m = json.loads(live.files['manifest.json'])
+    m['regions'][0]['quartered'][DILLON]['quarters'][QUARTERS[0]]['layers']['t0-3m']['bytes'] = len(live.files[b])
+    live.files['manifest.json'] = json.dumps(m).encode()
+    artifact(tmp_path, 0, [OTHER])
+    with pytest.raises(RuntimeError, match='not the slope-cell file'):
+        run(tmp_path, live, 'site2')
+
+
+# Requirement: Files read back from the live site are checked ("A whole cell becomes split",
+# "A split cell fits whole again")
+def test_a_whole_cell_becomes_split_and_back(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    split_artifact(tmp_path, 0, split=[DILLON])
+    changed, out2 = run(tmp_path, live, 'site2')
+    assert changed is True
+    r = json.loads((out2 / 'manifest.json').read_text())['regions'][0]
+    assert r['cells'] == {} and list(r['quartered']) == [DILLON]
+    assert all((out2 / p).exists() for p in quarter_files(DILLON))
+    assert not any((out2 / f'colorado/{DILLON}/{l}.json.gz').exists() for l in site.LAYERS)
+    live.publish(out2)
+    artifact(tmp_path, 0, [DILLON])
+    _c, out3 = run(tmp_path, live, 'site3')
+    r = json.loads((out3 / 'manifest.json').read_text())['regions'][0]
+    assert list(r['cells']) == [DILLON] and r['quartered'] == {}
+    assert not (out3 / f'colorado/{DILLON}/{QUARTERS[0]}').exists()
+
+
+def test_fewer_cells_counts_split_cells_too(live, tmp_path):
+    split_artifact(tmp_path, 0, split=[DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    m = json.loads(live.files['manifest.json'])
+    # a live manifest listing a split cell outside the regions list: the new manifest would drop it
+    stray = dict(m['regions'][0]['quartered'][DILLON])
+    stray['quarters'] = dict(zip(grid.quarters('0_0'), stray['quarters'].values()))
+    m['regions'][0]['quartered']['0_0'] = stray
+    live.files['manifest.json'] = json.dumps(m).encode()
+    artifact(tmp_path, 0, [DILLON])  # 1 cell in the new manifest, 2 in the live one
+    with pytest.raises(RuntimeError, match='fewer than the live'):
+        run(tmp_path, live, 'site2')
+
+
+# Requirement: The deploy job accepts only well-formed split cells (attack tests)
+def test_rejects_a_whole_cell_file_beside_the_quarters(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    (root / DILLON / 't1-4.json.gz').write_bytes(cellfile.dumps(cellfile.build(DILLON, 't1-4', {})))
+    with pytest.raises(RuntimeError, match='not exactly'):
+        prep(tmp_path)
+
+
+def rewrite_quarter(root, cell, q, layer, doc):
+    data = cellfile.dumps(doc)
+    (root / cell / q / f'{layer}.json.gz').write_bytes(data)
+    e = json.loads((root / cell / 'entry.json').read_text())
+    e['quarters'][q]['layers'][layer]['bytes'] = len(data)
+    (root / cell / 'entry.json').write_text(json.dumps(e))
+
+
+def test_rejects_a_quarters_point_in_another_quarter(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    s, w, _n, _e = grid.quarter_bounds(DILLON, QUARTERS[1])  # the next quarter east
+    y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
+    doc = cellfile.build(DILLON, 't0-3m', {0: {30: [[[(y, x), (y + 10, x), (y + 10, x + 10)]]]}}, quarter=QUARTERS[0])
+    rewrite_quarter(root, DILLON, QUARTERS[0], 't0-3m', doc)
+    with pytest.raises(RuntimeError, match='outside the'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarter_file_naming_another_quarter(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    doc = cellfile.build(DILLON, 't0-3m', {}, quarter=QUARTERS[2])
+    rewrite_quarter(root, DILLON, QUARTERS[0], 't0-3m', doc)
+    with pytest.raises(RuntimeError, match='not the slope-cell file'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarter_file_without_its_quarter_key(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    rewrite_quarter(root, DILLON, QUARTERS[0], 't0-3m', cellfile.build(DILLON, 't0-3m', {}))
+    with pytest.raises(RuntimeError, match='not the slope-cell file'):
+        prep(tmp_path)
+
+
+def test_rejects_a_whole_cell_file_with_a_quarter_key(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    rewrite_layer(root, DILLON, 't0-3m', cellfile.build(DILLON, 't0-3m', {}, quarter=QUARTERS[0]))
+    with pytest.raises(RuntimeError, match='not the slope-cell file'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarter_folder_that_is_a_link(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    q = root / DILLON / QUARTERS[0]
+    shutil.move(str(q), str(tmp_path / 'elsewhere'))
+    os.symlink(tmp_path / 'elsewhere', q)
+    with pytest.raises(RuntimeError, match='not a folder'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarter_file_that_is_a_link(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    p = root / DILLON / QUARTERS[0] / 't1-4.json.gz'
+    os.remove(p)
+    os.symlink('/etc/passwd', p)
+    with pytest.raises(RuntimeError, match='regular file'):
+        prep(tmp_path)
+
+
+@pytest.mark.parametrize('bad', ['both', 'three', 'five', 'neither'])
+def test_rejects_a_split_entry_of_the_wrong_form(tmp_path, bad):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    ep = root / DILLON / 'entry.json'
+    e = json.loads(ep.read_text())
+    if bad == 'both':
+        e['layers'] = e['quarters'][QUARTERS[0]]['layers']
+    elif bad == 'three':
+        del e['quarters'][QUARTERS[3]]
+        shutil.rmtree(root / DILLON / QUARTERS[3])
+    elif bad == 'five':
+        e['quarters']['318_-850'] = e['quarters'][QUARTERS[0]]
+    elif bad == 'neither':
+        del e['quarters']
+    ep.write_text(json.dumps(e))
+    with pytest.raises(RuntimeError, match='entry.json is not valid'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarters_left_out_file_that_is_there_anyway(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON], left_out={QUARTERS[0]: ('t0-2m',)})
+    (root / DILLON / QUARTERS[0] / 't0-2m.json.gz').write_bytes(
+        cellfile.dumps(cellfile.build(DILLON, 't0-2m', {}, quarter=QUARTERS[0])))
+    with pytest.raises(RuntimeError, match='not exactly'):
+        prep(tmp_path)
+
+
+def test_rejects_an_oversized_quarter_file(tmp_path, monkeypatch):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    p = root / DILLON / QUARTERS[0] / 't1-4.json.gz'
+    monkeypatch.setattr(publish, 'MAX_FILE_BYTES', p.stat().st_size - 1)
+    monkeypatch.setattr(publish, 'MAX_FILE_BYTES', 1000)
+    p.write_bytes(b'x' * 1001)
+    with pytest.raises(RuntimeError, match='is over'):
+        prep(tmp_path)
+
+
+def test_rejects_a_quarter_size_that_differs_from_its_entry(tmp_path):
+    root = split_artifact(tmp_path, 0, split=[DILLON])
+    e = json.loads((root / DILLON / 'entry.json').read_text())
+    e['quarters'][QUARTERS[0]]['layers']['t1-4']['bytes'] += 1
+    (root / DILLON / 'entry.json').write_text(json.dumps(e))
+    with pytest.raises(RuntimeError, match='size differs'):
+        prep(tmp_path)
+
+
+# Requirement: The site sets its CORS and cache headers ("A quarter's cache")
+def test_a_quarter_path_matches_one_cache_rule():
+    rules = {k: v for k, v in header_rules().items() if any(x.startswith('Cache-Control') for x in v)}
+    hits = [k for k in rules if rule_matches(k, f'/colorado/{DILLON}/{QUARTERS[0]}/t0-2m.json.gz')]
+    assert len(hits) == 1 and rules[hits[0]] == ['Cache-Control: public, max-age=86400']
+
+
+# Requirement: Each region has an overview of its built cells' tier 4 ("A split cell's tier 4")
+def test_the_overview_holds_a_split_cells_quarters_in_order(live, tmp_path):
+    counts = dict(zip(QUARTERS, (1, 2, 0, 4)))
+    split_artifact(tmp_path, 0, split=[DILLON], t4=counts)
+    _c, out = run(tmp_path, live)
+    got = overview_doc(out)['tiers']['4']['30']
+    assert len(got) == 7
+    want = []
+    for q in QUARTERS:
+        want += cellfile.loads((out / f'colorado/{DILLON}/{q}/t1-4.json.gz').read_bytes())['tiers']['4']['30']
+    assert got == want
+    assert got[0] == want[0] and got[-4:] == cellfile.loads(
+        (out / f'colorado/{DILLON}/{QUARTERS[3]}/t1-4.json.gz').read_bytes())['tiers']['4']['30']
+
+
+# Requirement: The site carries its sources notice ("A split cell's projects")
+def test_the_license_lists_a_split_cells_projects(live, tmp_path):
+    split_artifact(tmp_path, 0, split=[DILLON], projects=['CO_Split_A_2017', 'CO_Split_B_2020'])
+    _c, out = run(tmp_path, live)
+    text = (out / 'LICENSE.txt').read_text()
+    assert '- CO_Split_A_2017' in text and '- CO_Split_B_2020' in text
+
+
+# Requirement: The site holds at most 19,000 files ("Counting a split cell's files")
+def test_the_file_count_counts_a_split_cells_files(live, tmp_path, monkeypatch):
+    split_artifact(tmp_path, 0, whole=[OTHER], split=[DILLON], left_out={QUARTERS[0]: ('t0-2m',)})
+    # 4 fixed files + the overview + 3 whole + 11 quarter files = 19
+    monkeypatch.setattr(site, 'MAX_SITE_FILES', 18)
+    with pytest.raises(RuntimeError, match='19 files'):
+        run(tmp_path, live)
+    monkeypatch.setattr(site, 'MAX_SITE_FILES', 19)
+    _c, out = run(tmp_path, live, 'site2')
+    assert sum(1 for p in out.rglob('*') if p.is_file()) == 19
+
+
+# CLAUDE.md: the plan and deploy jobs use only the standard library (the deploy job holds the token);
+# the quarter cut (shapely) stays in the build job's code.
+def test_the_plan_and_deploy_code_imports_no_third_party_package():
+    import subprocess
+    import sys
+    code = ('import sys; import slope_extracts.site, slope_extracts.publish, slope_extracts.overview; '
+            'print(sorted({m.split(".")[0] for m in sys.modules} & {"numpy", "rasterio", "shapely"}))')
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run([sys.executable, '-c', code], cwd=root, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == '[]'
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("A live manifest from before this change")
+def test_a_deploy_over_a_live_manifest_without_quartered(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON])
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    m = json.loads(live.files['manifest.json'])
+    del m['regions'][0]['quartered']
+    live.files['manifest.json'] = json.dumps(m).encode()
+    split_artifact(tmp_path, 0, split=[OTHER])
+    changed, out2 = run(tmp_path, live, 'site2')
+    assert changed is True
+    r = json.loads((out2 / 'manifest.json').read_text())['regions'][0]
+    assert list(r['cells']) == [DILLON] and list(r['quartered']) == [OTHER]
+
+
+# Requirement: The manifest lists quartered cells apart from whole ones ("Quarters out of order")
+def test_a_live_quartered_entry_with_its_quarters_out_of_order_fails_the_plan():
+    m = split_manifest()
+    e = m['regions'][0]['quartered'][DILLON]
+    e['quarters'] = dict(reversed(list(e['quarters'].items())))
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch_body(m)

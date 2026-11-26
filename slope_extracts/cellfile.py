@@ -12,6 +12,10 @@ A cell file is gzip-compressed JSON (UTF-8), served as `<region>/<cell>/<layer>.
   Garmin map units (lat, lon times 2**24 / 360, rounded), then each next point as the difference
   from the one before. At least 3 points; the ring closes back to its first point implicitly.
 
+A split cell (one too large to publish whole) is four quarter files instead, served as
+`<region>/<cell>/<quarter>/<layer>.json.gz`, each with one more key, `quarter` (its "<qrow>_<qcol>"
+id), after `cell`, which stays the parent cell's id.
+
 The contract is only geometry per class, so anything that computes the same classes (a later
 on-demand builder, say) can write the same file.
 """
@@ -43,14 +47,16 @@ def decode_ring(flat):
     return pts
 
 
-def build(cell_id, layer, tiers):
-    """tiers: {tier int: {lower bound int: [polygon of rings of (y, x)]}}."""
-    return {
-        'format': FORMAT, 'version': VERSION, 'cell': cell_id, 'layer': layer,
-        'tiers': {str(t): {str(b): [[encode_ring(r) for r in poly] for poly in polys]
-                           for b, polys in sorted(classes.items())}
-                  for t, classes in sorted(tiers.items())},
-    }
+def build(cell_id, layer, tiers, quarter=None):
+    """tiers: {tier int: {lower bound int: [polygon of rings of (y, x)]}}; quarter: a split cell's quarter."""
+    doc = {'format': FORMAT, 'version': VERSION, 'cell': cell_id}
+    if quarter is not None:
+        doc['quarter'] = quarter
+    doc['layer'] = layer
+    doc['tiers'] = {str(t): {str(b): [[encode_ring(r) for r in poly] for poly in polys]
+                             for b, polys in sorted(classes.items())}
+                    for t, classes in sorted(tiers.items())}
+    return doc
 
 
 def json_bytes(doc):
