@@ -243,6 +243,39 @@ manifest is published.
 - **WHEN** a v1 cell's `t1-4` counts 0 polygons in every tier
 - **THEN** its new entry gives `t1-4` `{"bytes": 0, "tiers": {}}`, and the site holds no `t1-4` file for it
 
+### Requirement: The deploy job checks the live site once deployed
+
+Once the deployment is created, the deploy job SHALL read the live site, with no credential, until its
+`manifest.json` is the bytes it deployed, for at most 10 minutes. It SHALL then check that manifest and
+every tile index it lists as the plan job does, that the live `hashes.json` is the bytes it deployed,
+and, in each tile, one file of its first built cell that has one against that file's entry and the
+cell-file checks. The job SHALL fail otherwise, naming what failed.
+
+#### Scenario: A deployment that went live
+
+- **WHEN** the live site answers with the manifest, `hashes.json`, tile indexes and files just deployed
+- **THEN** the check passes, having read one cell file per tile with a built cell
+
+#### Scenario: A deployment slow to go live
+
+- **WHEN** the live manifest is the earlier one at first, then the one just deployed
+- **THEN** the check reads it again until it is, and passes
+
+#### Scenario: A deployment that never goes live
+
+- **WHEN** the live manifest is still the earlier one after 10 minutes
+- **THEN** the deploy job fails
+
+#### Scenario: A broken live file
+
+- **WHEN** the live manifest is the one deployed but a tile index or the checked cell file is not the one its entry gives
+- **THEN** the deploy job fails, naming that file
+
+#### Scenario: The check holds no secret
+
+- **WHEN** the workflow is read
+- **THEN** the step that checks the live site has no secret in its environment and runs only after the deployment is created
+
 ## MODIFIED Requirements
 
 ### Requirement: A cell is three gzip JSON layer files

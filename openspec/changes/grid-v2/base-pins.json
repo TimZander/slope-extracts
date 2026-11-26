@@ -13,6 +13,7 @@
       "The live manifest is checked, with its tile indexes": null,
       "A version 1 manifest still deploys": null,
       "The first run moves the cells onto the grid": null,
+      "The deploy job checks the live site once deployed": null,
       "A cell is three gzip JSON layer files": "892ae3e511159e6090ffc01c02b4f9f8228757909fe8ee573cdc9921692cc978",
       "A quarter file names its cell and its quarter": "b25622364ddfa369df8d3d450f778e9c36d27ad8d3b678e69bd83c5bd84e6772",
       "A run builds missing and stale cells, at most 48": "2b15281e400d1f17873ca36b9e5d2090159a4a2a90db3856549f2749453c8fde",
