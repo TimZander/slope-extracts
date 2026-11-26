@@ -11,11 +11,11 @@ The reader's version 2 change ships before this merges (ADR 0030).
 - [ ] 2.1 `areas.json` (Colorado as one box) and its checks, replacing `regions.json`
 - [ ] 2.2 `grid.py`: a cell's tile; `site.py`: coverage as the union of areas, the plan, the manifest, tile indexes, empty layers, `_headers`
 - [ ] 2.3 `publish.py` and `overview.py`: cells at `cells/`, tile overviews, the first run's move, the live manifest's and tile indexes' checks
-- [ ] 2.4 `build_cell.py`: empty layers write no file; `build.yml`: plain cell ids in job lists
-- [ ] 2.5 `deploy/pages.mjs`: the hash tie on the manifest and each tile index
+- [ ] 2.4 `build_cell.py`: empty layers write no file; the deploy's artifact check refuses an empty layer's file; `build.yml`: plain cell ids in job lists, the plan job's limit at 30 minutes
+- [ ] 2.5 `deploy/pages.mjs`: the hash tie on the manifest and each tile index ("The live hashes belong to the live manifest")
 
 ## 3. Records
 
-- [x] 3.1 ADRs for the owner's answers: areas as boxes (0028), 2° tiles (0029), switching at once (0030), no file for an empty layer (0031)
+- [x] 3.1 ADRs for the owner's answers: areas as boxes (0028), 2° tiles (0029), switching at once (0030), no file for an empty layer (0031), the tile entries' masks and `indexBytes` (0032)
 - [ ] 3.2 README; the paused `add-wyoming-utah-idaho` branch closed, its areas carried over
 - [ ] 3.3 Security review and attack test (the deploy job's paths change)

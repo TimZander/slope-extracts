@@ -50,6 +50,18 @@ A tile SHALL be `<trow>_<tcol>` with trow = floor(latitude / 2) and tcol = floor
 - **WHEN** no area covers any cell of tile `20_-60`
 - **THEN** the site holds no `tiles/20_-60/` files and the manifest lists no such tile
 
+### Requirement: A built cell's entry gives its build and its layers
+
+A whole cell's entry in a tile index SHALL hold exactly `recipe`, `built` (YYYY-MM-DD), `sources` (the
+`lidar`, `dem10m` and `none` fractions), `projects` (the lidar projects used) and `layers`: for each of
+`t0-3m`, `t0-2m` and `t1-4`, its `bytes` and, per tier, its `polygons` and `points`. A split cell's
+entry SHALL hold the same with `quarters` in place of `layers`.
+
+#### Scenario: A whole cell's entry
+
+- **WHEN** cell `158_-425` is built whole from one lidar project
+- **THEN** its tile index's `cells` maps it to an object of exactly `recipe`, `built`, `sources`, `projects` and `layers`, `layers` holding all three layers
+
 ### Requirement: Each tile has an overview of its built cells' tier 4
 
 A tile with a built cell SHALL have `tiles/<tile>/overview.json.gz`: gzip JSON with exactly `format`
@@ -73,6 +85,11 @@ SHALL have no overview.
 - **WHEN** a tile has covered cells but none built
 - **THEN** the site holds no overview for it
 
+#### Scenario: Only empty zoomed-out layers
+
+- **WHEN** a tile's only built cell has an empty `t1-4`
+- **THEN** its overview holds class `30` of tier `4` with no polygon, and its manifest entry gives that overview
+
 #### Scenario: A split cell's tier 4
 
 - **WHEN** a tile's only built cell, `158_-425`, is split, its quarters `316_-850`, `316_-849`, `317_-850` and `317_-849` holding 1, 2, 0 and 4 tier-4 polygons
@@ -82,8 +99,8 @@ SHALL have no overview.
 
 `manifest.json` SHALL hold exactly `format` `slope-extract`, `version` 2, `attribution`, `cellFormat`,
 `layers`, `tiles`, mapping each tile with a covered cell to its entry, and `areas`, in `areas.json`'s
-order, each with `id`, `name`, `boxes` and `tiles` (the tiles holding cells it covers). The boxes describe
-an area; whether a cell exists is the tiles' to say.
+order, each with exactly `id`, `name`, `boxes` and `tiles` (the tiles holding cells it covers, in row then
+column order). The boxes describe an area; whether a cell exists is the tiles' to say.
 
 #### Scenario: Colorado's manifest
 
@@ -143,7 +160,8 @@ count tier `0`.
 
 The plan and deploy jobs SHALL read `manifest.json` and each tile index it lists (each at most 4 MiB),
 and fail when any isn't of its form, a listed tile index answers other than 200 or isn't the size the
-manifest gives it, a tile index lists a cell outside its tile, or its counts or masks differ from the manifest's.
+manifest gives it, a tile index lists a cell outside its tile or a built cell outside its coverage, or its
+counts or masks differ from the manifest's.
 A tile's `overview` entry is used for nothing. The deploy job SHALL fail when it reads another manifest
 version than the plan job did.
 
@@ -164,15 +182,20 @@ version than the plan job did.
 
 ### Requirement: The first run moves the cells onto the grid
 
-When the live manifest is version 1, the deploy job SHALL keep every cell it lists and this run doesn't
-build, and deploy each file at its `cells/` path by the hash `hashes.json` gives its v1 path, reading
-back only its `t1-4` there; a layer whose v1 counts hold no polygon becomes empty. It SHALL publish no
-v1 path or v1 manifest.
+When the live manifest is version 1, checked as before this change, the deploy job SHALL keep each cell
+it lists and this run doesn't build, deploying each file at `cells/` by its v1 path's hash; it SHALL read
+back from that v1 path its `t1-4`, any file `hashes.json` doesn't list or Cloudflare lacks. A layer its
+v1 counts give no polygon becomes empty. No v1 path or manifest is published.
 
 #### Scenario: Colorado's cells move
 
 - **WHEN** the live site holds 350 built Colorado cells under `colorado/` and a version 1 manifest, and a run builds 48 more
 - **THEN** the deploy reads back only the 350 `t1-4` files from `colorado/…`, and the deployment holds all 398 under `cells/…`, nothing under `colorado/`, and a version 2 manifest listing all 398
+
+#### Scenario: A v1 cell no area covers
+
+- **WHEN** the version 1 manifest lists a cell under a region that no area's boxes cover
+- **THEN** the new manifest would list fewer cells, so the deploy job fails and nothing is deployed
 
 #### Scenario: A v1 layer with no polygons
 
@@ -184,7 +207,7 @@ v1 path or v1 manifest.
 ### Requirement: A cell is three gzip JSON layer files
 
 A cell SHALL be published as `cells/<cell>/t0-3m.json.gz`, `t0-2m.json.gz` and `t1-4.json.gz`,
-each unless left out or empty,: gzip JSON with `format` `slope-cell`, `version` 1, `cell`, `layer`, and `tiers` mapping a
+each unless left out or empty: gzip JSON with `format` `slope-cell`, `version` 1, `cell`, `layer`, and `tiers` mapping a
 tier to its classes. A class SHALL map to polygons, each a list of rings, outer first. A ring SHALL be
 integers: its first point in 24-bit map units (lat, lon), then each next point's difference, at least 3
 points, closed implicitly. A split cell's files SHALL be its quarters'.
@@ -215,8 +238,8 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 
 The plan job SHALL read the live manifest and tile indexes and choose, the areas in list order and each
 area's coverage in order, each covered cell once that its tile doesn't list, lists with another recipe
-number, lists as built more than 300 days ago, or lists whole with a layer left out, at most 48, in jobs
-of 3 cells. With none to
+number, lists as built more than 300 days ago, or lists whole with `t0-2m` left out (not empty), at most
+48, in jobs of 3 cells. With none to
 build, no build or deploy job SHALL run.
 
 #### Scenario: A stale cell
@@ -244,7 +267,12 @@ build, no build or deploy job SHALL run.
 - **WHEN** its tile index lists a cell in `quartered`, built today with the current recipe, with one quarter's `t0-2m` left out
 - **THEN** the run doesn't build it
 
-#### Scenario: The first run after this change
+#### Scenario: A flat cell
+
+- **WHEN** its tile index lists a cell built today with the current recipe, every layer empty
+- **THEN** the run doesn't build it
+
+#### Scenario: The first run on the grid
 
 - **WHEN** the live manifest is version 1
 - **THEN** the plan reads its built cells as built, and builds none of them again for the change
@@ -485,6 +513,177 @@ this run didn't build.
 
 - **WHEN** the live `hashes.json` maps a kept file to `"zz"`
 - **THEN** the deploy job fails and nothing is deployed
+
+### Requirement: The manifest marks a left-out layer
+
+A left-out layer's entry SHALL keep its key, with `bytes` 0 and `tiers` holding only tier `0` with 0
+polygons and 0 points; the site SHALL hold no file for it and the deploy job SHALL request none. A layer file is never 0 bytes, so a
+reader can tell the layer is absent without requesting it. Otherwise `bytes` 0 SHALL mean an empty layer,
+`tiers` `{}`; with any other `tiers`, on any layer, it SHALL make the entry invalid.
+
+#### Scenario: A cell published without its 2 m layer
+
+- **WHEN** a run publishes a cell whose `t0-2m` was left out
+- **THEN** its entry's `t0-2m` is `{"bytes": 0, "tiers": {"0": {"polygons": 0, "points": 0}}}`,
+  its other layers are listed as usual, and the site holds its `t0-3m` and `t1-4` files only
+
+#### Scenario: The marker on another layer
+
+- **WHEN** a build job's entry gives `t1-4` `bytes` 0 and tier `0` counted
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A marker with counts
+
+- **WHEN** a build job's entry gives `t0-2m` `bytes` 0 and tier `0` 12 polygons
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: The marker on another layer in the live manifest
+
+- **WHEN** a live tile index gives a cell's `t0-3m` `bytes` 0 and tier `0` counted
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
+
+### Requirement: A quarter holds its cell's polygons clipped to the quarter
+
+Each quarter's layers SHALL hold the same tiers and classes as the whole cell's, with the polygons the
+cell would hold whole, clipped to the quarter's bounds: a polygon inside one quarter SHALL be written
+unchanged, and one crossing a quarter's edge SHALL be cut along it, each piece a polygon, in the whole
+cell's order. Every point SHALL lie within its quarter. A quarter's layer with no polygon in a class SHALL list that class empty; one with no polygon
+at all is empty, with no file.
+
+#### Scenario: A polygon across the quarters' middle line
+
+- **WHEN** a split cell holds a polygon crossing the line between quarters `316_-850` and `317_-850`
+- **THEN** each of those quarters holds the part on its side, and every point of each lies within its quarter's bounds, to one map unit
+
+#### Scenario: A quarter with no steep ground
+
+- **WHEN** a split cell's quarter `317_-849` has no slope over 30°
+- **THEN** its three layers are empty: its entry gives each `bytes` 0 and `tiers` `{}`, and no file is written for it
+
+#### Scenario: The same split cell builds to the same bytes
+
+- **WHEN** a split cell is built twice from the same DEM
+- **THEN** its twelve files are byte for byte the same
+
+### Requirement: Files read back from the live site are checked
+
+Each file read back from the live site SHALL be the size its live entry gives it and pass the cell-file
+checks. The deploy job SHALL fail before the deployment is created otherwise, or when:
+- the live manifest is invalid, unless the first-deploy switch reads it as no manifest
+- a file it lists answers 404
+- it reads no manifest (a 404, or the switch) though the plan job read one
+- the new manifest would list fewer cells, each once, than the live one
+
+#### Scenario: A file changed on the live site
+
+- **WHEN** a live cell file the deploy job reads back to assemble the site differs in size from the live manifest's
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A live cell without its 2 m layer
+
+- **WHEN** the live site lists a cell whose `t0-2m` is marked left out, `hashes.json` lists none of its files, and a run builds another cell but not it
+- **THEN** the deploy job reads back that cell's `t0-3m` and `t1-4`, requests no `t0-2m`, and the new
+  tile index keeps its entry as it was
+
+#### Scenario: A live split cell
+
+- **WHEN** the live site lists a split cell, `hashes.json` lists none of its files, and a run builds another cell
+- **THEN** the deploy job reads back its quarters' files, each checked against its quarter's size and
+  bounds, and its tile index keeps its entry under `quartered` as it was
+
+#### Scenario: A whole cell becomes split
+
+- **WHEN** the live site lists a cell whole, and this run builds it split
+- **THEN** its tile index lists it in `quartered` only, the site holds its quarters' files and none
+  of its whole-cell files, and the deploy goes ahead
+
+#### Scenario: A split cell fits whole again
+
+- **WHEN** the live site lists a cell split, and this run builds it whole
+- **THEN** its tile index lists it in `cells` only, and the site holds its whole-cell files and none
+  of its quarters'
+
+#### Scenario: The switch forgives a manifest the plan job read
+
+- **WHEN** the plan job read a valid manifest, and the deploy job, with `FIRST_DEPLOY` `true`, reads the manifest as none
+- **THEN** the deploy job fails, and no site of this run's cells alone is published
+
+#### Scenario: The custom domain stops answering
+
+- **WHEN** the plan job read the live manifest but the deploy job gets a 404 for it
+- **THEN** the deploy job fails, and no site of this run's cells alone is published
+
+### Requirement: The live hashes belong to the live manifest
+
+The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is over 4 MiB, not its
+keys, format, version and `/<path>` → hash entries, or answers other than 200 or 404; when its
+`/manifest.json` entry isn't the read manifest's hash; or when a file read back hashes to another entry
+it gives. It SHALL ignore entries for paths it doesn't keep, and read back kept paths with none.
+
+#### Scenario: Hashes from another deployment
+
+- **WHEN** the live `hashes.json` was written with an older manifest than the live one
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A `t1-4` file that doesn't match its hash
+
+- **WHEN** a kept cell's `t1-4` file reads back with bytes whose hash differs from `hashes.json`'s
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A path that is no longer kept
+
+- **WHEN** the live `hashes.json` lists the whole-cell files of a cell this run builds split
+- **THEN** the deploy job ignores those entries, and the new `hashes.json` lists the cell's quarters' files only
+
+#### Scenario: A tile index from another deployment
+
+- **WHEN** a live tile index of the size the manifest gives it doesn't hash to its `hashes.json` entry
+- **THEN** the deploy job fails and no deployment is created
+
+### Requirement: Files keep their content types
+
+Every file the deploy job uploads SHALL carry the content type wrangler gave it: `application/gzip`
+for `.gz`, `application/json` for `.json`, `text/html` for `.html` and `text/plain` for `.txt`.
+
+#### Scenario: A cell file's type
+
+- **WHEN** a run uploads `cells/158_-425/t1-4.json.gz` and `manifest.json`
+- **THEN** they are sent as `application/gzip` and `application/json`
+
+### Requirement: A failed cell keeps its previous files
+
+A cell that fails to build SHALL be left out of its job's artifact, the job SHALL end red, and the deploy
+job SHALL keep that cell's previous files and entry.
+
+#### Scenario: One cell of three fails
+
+- **WHEN** one cell of a job fails and the other two build
+- **THEN** the site publishes the two, keeps the failed cell's previous files, and the run is red
+
+#### Scenario: A cell fails after writing a layer
+
+- **WHEN** a cell fails on its `t1-4` file after its `t0-3m` file was written
+- **THEN** the job's artifact holds no folder for that cell, and the deploy publishes the job's other cells
+
+### Requirement: The site holds at most 19,000 files
+
+The deploy job SHALL fail before the deployment is created when its manifest would name more than
+19,000 files, `hashes.json` counted and `_headers`, which it doesn't name, not.
+
+#### Scenario: Too many files
+
+- **WHEN** the deployment's manifest would name 19,001 files
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: Counting a split cell's files
+
+- **WHEN** a tile has one whole cell and one split cell with one quarter's `t0-2m` left out
+- **THEN** the site's file count includes 3 files for the whole cell and 11 for the split one
+
+#### Scenario: Counting the hashes file
+
+- **WHEN** the deployment's manifest would name 18,999 files besides `hashes.json`
+- **THEN** it names 19,000 files, and the deploy goes ahead
 
 ## REMOVED Requirements
 

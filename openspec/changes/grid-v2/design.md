@@ -39,7 +39,9 @@ cell file's form or the recipe.
    `/tiles/:tile/overview.json.gz` (an hour), `/manifest.json` and `/hashes.json` (five minutes),
    `/LICENSE.txt` (an hour). No rule per area, so none overlaps.
 7. **The plan reads `manifest.json`, then each listed tile's index** (12 for Colorado, a few hundred at
-   four states), each checked and size-tied to the manifest.
+   four states), each checked and size-tied to the manifest, under "Waits on Cloudflare are bounded"
+   (2-minute timeouts, two retries). The plan job's 10-minute limit is raised to 30, and tile indexes
+   are read four at a time, so a few hundred small reads fit.
 8. **Build jobs get plain cell ids** (`158_-425`), so a job can't be given one cell twice under two
    names.
 9. **The first run reads the version 1 manifest**, keeps its cells by their v1 paths' hashes, reads back
@@ -73,7 +75,10 @@ cell file's form or the recipe.
 
 The reader's version 2 change ships; this merges; the next run reads the version 1 manifest, deploys
 every cell at `cells/` by hash, writes tile indexes, tile overviews and a version 2 manifest, and drops
-the region paths. Rollback: revert, and a run deploys version 1 again from the same cells by hash.
+the region paths. Rollback is not a plain revert: the old code reads a version 2 manifest as invalid and
+fails its plan, and empty layers have no v1 file. Going back needs a change that reads version 2 and
+writes version 1 (rebuilding empty layers' files), or a rebuild from scratch with the first-deploy
+switch; so the reader's version 2 must be proven before this merges.
 
 ## Review rounds
 
