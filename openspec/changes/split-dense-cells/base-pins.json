@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "A cell too large to publish whole is split into its four quarters": null,
+      "A quarter holds its cell's polygons clipped to the quarter": null,
+      "A quarter file names its cell and its quarter": null,
+      "The manifest lists quartered cells apart from whole ones": null,
+      "The deploy job accepts only well-formed split cells": null,
+      "A cell is three gzip JSON layer files": "b1965d70b37af1dc7c8d007c16cf77ab68e064cea40db4fd3b4afd556dfd3bf9",
+      "The manifest lists each region's coverage and built cells": "e7ea65bc650f77e400bf601b1a695873952d34fefc78cbab5a843b4c595535e4",
+      "A run builds missing and stale cells, at most 48": "4ddeb1ed0f00e8ec213284cd63f9ccf9dd375a1da2f312a4cabe98ffa0219e29",
+      "Files read back from the live site are checked": "196ef9a91c97171c166d2b1d9ef70a296d90ee7b576e40ade74640d953e29dc9",
+      "The site sets its CORS and cache headers": "904d660cfe55499d0a33e88165458f91bf1b3e3928ac03288d363c4ab63694b5",
+      "Each region has an overview of its built cells' tier 4": "398efe6f0511f3feed6bc52f7ad31be1ceeffcef6c2ffa19cd05af7130b150b6",
+      "An oversize 2 m layer is left out of its cell": "2d001c074a992c297caa117bfb153205f84e0254dba36fc16b8901e2d899c39e"
+    }
+  }
+}
