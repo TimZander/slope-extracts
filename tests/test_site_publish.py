@@ -87,8 +87,11 @@ def live(monkeypatch):
     return s
 
 
-def fake_cell(root, cell, tag=0):
-    """A built cell as build_cell writes it, with one small polygon."""
+LEFT_OUT = {'bytes': 0, 'tiers': {'0': {'polygons': 0, 'points': 0}}}
+
+
+def fake_cell(root, cell, tag=0, left_out=()):
+    """A built cell as build_cell writes it, with one small polygon; layers in `left_out` have no file."""
     cdir = root / cell
     cdir.mkdir(parents=True)
     layers = {}
@@ -96,6 +99,9 @@ def fake_cell(root, cell, tag=0):
     y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
     ring = [[(y + tag, x), (y + 10, x), (y + 10, x + 10)]]
     for l in site.LAYERS:
+        if l in left_out:
+            layers[l] = dict(LEFT_OUT)
+            continue
         tiers = {0: {30: [ring]}} if l.startswith('t0') else {4: {30: [ring]}}
         data = cellfile.dumps(cellfile.build(cell, l, tiers))
         (cdir / f'{l}.json.gz').write_bytes(data)
@@ -105,14 +111,14 @@ def fake_cell(root, cell, tag=0):
     return cdir
 
 
-def artifact(tmp_path, n, cells, tag=0):
+def artifact(tmp_path, n, cells, tag=0, left_out=()):
     root = tmp_path / 'artifacts' / f'cells-{n}'
     if (tmp_path / 'artifacts').exists():
         shutil.rmtree(tmp_path / 'artifacts')
     root.mkdir(parents=True)
     (root / 'jobs.txt').write_text(' '.join(f'colorado/{c}' for c in cells))
     for c in cells:
-        fake_cell(root, c, tag)
+        fake_cell(root, c, tag, left_out)
     return root
 
 
@@ -350,9 +356,33 @@ def test_rejects_a_malformed_ring(tmp_path):
 
 
 def test_rejects_an_oversized_file(tmp_path, monkeypatch):
+    root = artifact(tmp_path, 0, [DILLON])
+    limit = max(os.path.getsize(p) for p in (root / DILLON).iterdir())
+    (root / DILLON / 't1-4.json.gz').write_bytes(b'x' * (limit + 1))
+    monkeypatch.setattr(publish, 'MAX_FILE_BYTES', limit)
+    with pytest.raises(RuntimeError, match='t1-4.json.gz is over'):
+        prep(tmp_path)
+
+
+def test_rejects_an_oversized_entry(tmp_path, monkeypatch):
     artifact(tmp_path, 0, [DILLON])
     monkeypatch.setattr(publish, 'MAX_FILE_BYTES', 10)
-    with pytest.raises(RuntimeError, match='limit'):
+    with pytest.raises(RuntimeError, match='entry.json is over'):
+        prep(tmp_path)
+
+
+@pytest.mark.parametrize('kind', ['symlink', 'dir', 'fifo', 'absent'])
+def test_rejects_an_entry_that_is_not_a_regular_file(tmp_path, kind):
+    root = artifact(tmp_path, 0, [DILLON])
+    ep = root / DILLON / 'entry.json'
+    os.remove(ep)
+    if kind == 'symlink':
+        os.symlink('/etc/passwd', ep)
+    elif kind == 'dir':
+        ep.mkdir()
+    elif kind == 'fifo':
+        os.mkfifo(ep)
+    with pytest.raises(RuntimeError, match='entry.json is not a regular file'):
         prep(tmp_path)
 
 
@@ -656,3 +686,76 @@ def test_rejects_an_overview_a_build_job_uploads(tmp_path):
     (root / 'overview.json.gz').write_bytes(b'not the deploy job\'s')
     with pytest.raises(RuntimeError, match='did not build'):
         prep(tmp_path)
+
+
+# --- a left-out 2 m layer (requirement: The manifest marks a left-out layer) ------------------
+
+def test_a_cell_without_its_2m_layer_is_published_with_the_marker(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON], left_out=('t0-2m',))
+    changed, out = run(tmp_path, live)
+    assert changed is True
+    cell_files = sorted(str(p.relative_to(out)) for p in (out / 'colorado' / DILLON).rglob('*'))
+    assert cell_files == [f'colorado/{DILLON}/t0-3m.json.gz', f'colorado/{DILLON}/t1-4.json.gz']
+    manifest = site.validate_manifest(json.loads((out / 'manifest.json').read_text()))
+    e = manifest['regions'][0]['cells'][DILLON]
+    assert e['layers']['t0-2m'] == LEFT_OUT
+    assert e['layers']['t0-3m']['bytes'] > 0 and e['layers']['t1-4']['bytes'] > 0
+    assert f'colorado/{DILLON}/t0-2m.json.gz' not in site.site_files(manifest)
+
+
+def test_rejects_a_left_out_layers_file_that_is_there_anyway(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON], left_out=('t0-2m',))
+    (root / DILLON / 't0-2m.json.gz').write_bytes(cellfile.dumps(cellfile.build(DILLON, 't0-2m', {})))
+    with pytest.raises(RuntimeError, match='not exactly'):
+        prep(tmp_path)
+
+
+def test_rejects_a_layer_missing_without_the_marker(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    os.remove(root / DILLON / 't0-2m.json.gz')
+    with pytest.raises(RuntimeError, match='not exactly'):
+        prep(tmp_path)
+
+
+@pytest.mark.parametrize('layer', ['t1-4', 't0-3m'])
+def test_rejects_the_marker_on_another_layer(tmp_path, layer):
+    root = artifact(tmp_path, 0, [DILLON], left_out=(layer,))
+    with pytest.raises(RuntimeError, match='entry.json is not valid'):
+        prep(tmp_path)
+
+
+@pytest.mark.parametrize('tiers', [{'0': {'polygons': 12, 'points': 0}}, {'0': {'polygons': 0, 'points': 40}}, {},
+                                   {'0': {'polygons': 0, 'points': 0}, '1': {'polygons': 0, 'points': 0}}])
+def test_rejects_a_marker_with_other_tiers(tmp_path, tiers):
+    root = artifact(tmp_path, 0, [DILLON], left_out=('t0-2m',))
+    e = json.loads((root / DILLON / 'entry.json').read_text())
+    e['layers']['t0-2m'] = {'bytes': 0, 'tiers': tiers}
+    (root / DILLON / 'entry.json').write_text(json.dumps(e))
+    with pytest.raises(RuntimeError, match='entry.json is not valid'):
+        prep(tmp_path)
+
+
+def test_the_marker_on_another_layer_in_the_live_manifest_fails_the_plan():
+    layers = {'t0-3m': dict(LEFT_OUT), 't0-2m': {'bytes': 9, 'tiers': {'0': {'polygons': 1, 'points': 3}}},
+              't1-4': {'bytes': 9, 'tiers': {'4': {'polygons': 1, 'points': 3}}}}
+    e = site.manifest_entry(dict(entry(DILLON), layers=layers))
+    body = json.dumps(site.build_manifest(REGION, {'colorado': {DILLON: e}})).encode()
+    live = FakeSite({'manifest.json': body})
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        publish.fetch_manifest('https://slope.test', live.get)
+
+
+def test_a_live_cell_without_its_2m_layer_is_read_back_without_it(live, tmp_path):
+    artifact(tmp_path, 0, [DILLON], left_out=('t0-2m',))
+    _c, out = run(tmp_path, live)
+    live.publish(out)
+    before = json.loads(live.files['manifest.json'])['regions'][0]['cells'][DILLON]
+    live.requests.clear()
+    artifact(tmp_path, 0, [OTHER])
+    changed, out2 = run(tmp_path, live, 'site2')
+    assert changed is True
+    assert f'colorado/{DILLON}/t0-2m.json.gz' not in live.requests
+    assert f'colorado/{DILLON}/t0-3m.json.gz' in live.requests and f'colorado/{DILLON}/t1-4.json.gz' in live.requests
+    assert not (out2 / f'colorado/{DILLON}/t0-2m.json.gz').exists()
+    after = json.loads((out2 / 'manifest.json').read_text())['regions'][0]['cells']
+    assert after[DILLON] == before and set(after) == {DILLON, OTHER}

@@ -18,3 +18,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0010](0010-build-all-of-colorado.md) | Build all of Colorado: drop the pilot's `only` list | accepted |
 | [0011](0011-a-region-overview-of-tier-4-written-by-the-deploy-job.md) | A per-region overview of every built cell's tier 4, written by the deploy job | accepted |
 | [0012](0012-update-sdd-to-0-4-4.md) | Update sdd from 0.3.2 to 0.4.4 | accepted |
+| [0013](0013-leave-out-an-oversize-t0-2m-layer.md) | Leave an oversize `t0-2m` layer out of its cell (marked `bytes` 0); split dense cells later (#10); limits not raised | accepted |

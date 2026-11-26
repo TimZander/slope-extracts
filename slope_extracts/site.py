@@ -16,6 +16,10 @@ from . import grid
 
 REGION_ID = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
 LAYERS = ('t0-3m', 't0-2m', 't1-4')
+# A layer too large to publish is left out: no file, and this entry. Only t0-2m may be (its bands are
+# also in t0-3m at 3 m). A layer file is gzip, never 0 bytes, so bytes 0 can mean nothing else.
+OPTIONAL_LAYER = 't0-2m'
+LEFT_OUT_TIERS = {'0': {'polygons': 0, 'points': 0}}
 MAX_SITE_FILES = 19000
 ATTRIBUTION = 'Elevation: USGS 3D Elevation Program (3DEP), public domain'
 REPOSITORY_URL = 'https://github.com/TimZander/slope-extracts'
@@ -72,6 +76,16 @@ def overview_path(region_id):
     return f'{region_id}/overview.json.gz'
 
 
+def left_out(layer_entry):
+    """Whether a checked entry's layer was left out (no file is published for it)."""
+    return layer_entry['bytes'] == 0
+
+
+def present_layers(entry):
+    """The layers of a checked entry that have a file."""
+    return [l for l in LAYERS if not left_out(entry['layers'][l])]
+
+
 def validate_entry(e, cell_id=None):
     """A cell's entry as a build job wrote it (or as the manifest holds it, without `cell`)."""
     if not _is_obj(e):
@@ -103,6 +117,9 @@ def validate_entry(e, cell_id=None):
         for t, s in l['tiers'].items():
             if t not in {'0', '1', '2', '3', '4'} or not _is_obj(s) or set(s) != {'polygons', 'points'} or not all(type(v) is int and v >= 0 for v in s.values()):
                 raise ValueError(f'layer {name}: tier {t!r} must have polygon and point counts')
+        if l['bytes'] == 0 and (name != OPTIONAL_LAYER or l['tiers'] != LEFT_OUT_TIERS):
+            raise ValueError(f'layer {name}: bytes 0 marks a left-out layer, allowed only on {OPTIONAL_LAYER} '
+                             f'with tiers {json.dumps(LEFT_OUT_TIERS)}')
     return e
 
 
@@ -219,8 +236,8 @@ def site_files(manifest):
     """Every path the manifest names, plus the fixed files."""
     paths = ['manifest.json', '_headers', '404.html', 'LICENSE.txt']
     for r in manifest['regions']:
-        for c in r['cells']:
-            paths += [layer_path(r['id'], c, l) for l in LAYERS]
+        for c, e in r['cells'].items():
+            paths += [layer_path(r['id'], c, l) for l in present_layers(e)]
         if r['cells']:
             paths.append(overview_path(r['id']))
     return paths
