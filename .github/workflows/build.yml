@@ -179,3 +179,8 @@ jobs:
           curl -fsS --max-time 300 -K "$RUNNER_TEMP/cf-curl" -H @"$RUNNER_TEMP/cf-auth" -o "$RUNNER_TEMP/cf-answer" \
             -F "manifest=<_deploy/deployment.json" -F "branch=main" -F "_headers=@_deploy/_headers;filename=_headers"
           python3 -I deploy/cf_answer.py deployment "$RUNNER_TEMP/cf-answer"
+      # Reads the live site back, with no credential: the deployed manifest (waiting up to 10 minutes for
+      # it), every tile index, hashes.json and one cell file per tile, checked as the plan job checks them.
+      - name: Check the live site
+        if: steps.site.outputs.changed == 'true'
+        run: python3 -m slope_extracts.publish verify --site _site

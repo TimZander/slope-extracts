@@ -773,7 +773,12 @@ def test_a_deployment_that_never_goes_live_fails(tmp_path):
 @pytest.mark.parametrize('broken', ['tile index', 'cell size', 'cell content', 'hashes', 'cell 404'])
 def test_a_broken_live_file_fails_naming_it(tmp_path, broken):
     live, out, _b = deployed_live(tmp_path)
-    cell_file = next(p for p in sorted(live.files) if p.startswith(f'cells/{DILLON}/') and p.endswith('t1-4.json.gz'))
+    live.requests.clear()
+    verify(live, out)
+    cell_file = next(r for r in live.requests if r.startswith('cells/') and grid.tile_of(r.split('/')[1]) == '19_-54')
+    checked = cell_file.split('/')[1]
+    donor = next(p for p in sorted(live.files) if p.startswith('cells/') and p.split('/')[1] != checked
+                 and p.endswith(cell_file.rsplit('/', 1)[1]))
     if broken == 'tile index':
         live.files['tiles/19_-54/index.json'] += b' '
         name = 'tiles/19_-54/index.json'
@@ -781,9 +786,10 @@ def test_a_broken_live_file_fails_naming_it(tmp_path, broken):
         live.files[cell_file] += b'\0'
         name = cell_file
     elif broken == 'cell content':
-        other = live.files[cell_file.replace(DILLON, NEIGHBOUR)]
-        live.files[cell_file] = other + b'\0' * (len(live.files[cell_file]) - len(other)) if len(other) <= len(live.files[cell_file]) else other[:len(live.files[cell_file])]
-        name = DILLON
+        # another cell's file, cut or padded to this one's size: right size, wrong cell
+        other, n = live.files[donor], len(live.files[cell_file])
+        live.files[cell_file] = (other + b'\0' * n)[:n]
+        name = cell_file
     elif broken == 'hashes':
         live.files['hashes.json'] = live.files['hashes.json'].replace(b'"files"', b'"files" ')
         name = 'hashes.json'

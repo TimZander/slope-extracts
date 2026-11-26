@@ -121,3 +121,12 @@ switch; so the reader's version 2 must be proven before this merges.
   113 version 1 files with no polygon became empty layers; no entry changed otherwise; 12 tiles, all
   with an overview; 1,126 files, none under `colorado/`; the hash step checked the live manifest and
   every re-read file against the live `hashes.json`.
+- The check once deployed (2026-11-26, the owner's "yes", ADR 0034): a read-only last step, no rollback
+  by the job (it would give the token a third call). Security review: no finding; the step has no `env:`
+  and runs after both token steps, reads `_site/` and the public site only, at paths from checked ids,
+  and prints errors through `safe()`. Mutations: the cell-file check, the `hashes.json` comparison and the
+  wait for the deployed manifest are each caught; the size check is a backstop (a longer file is refused
+  by the read limit, a shorter one by the cell-file check).
+- The app's version 2 reader (its branch, not yet on its default branch) read the dry run's manifest, 12
+  tile indexes and overviews, all 295 `t1-4` files and 24 sampled `t0` files, and skipped exactly the
+  113 empty layers; its 89 grid tests pass.

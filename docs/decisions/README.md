@@ -39,3 +39,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0031](0031-no-file-for-an-empty-layer.md) | A layer with no polygons has no file | proposed |
 | [0032](0032-tile-entries-carry-cell-masks.md) | A tile's manifest entry carries cell masks; the index's size is `indexBytes` | proposed |
 | [0033](0033-the-version-2-contract.md) | The version 2 contract: `manifest.json` version 2, `slope-tile` indexes, `slope-overview` version 2 | proposed |
+| [0034](0034-check-the-live-site-once-deployed.md) | The deploy job checks the live site once deployed; a rollback stays manual | proposed |

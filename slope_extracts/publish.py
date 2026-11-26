@@ -462,6 +462,60 @@ def assemble(artifacts_dir, out_dir, plan_jobs, plan_had_manifest, areas=None, s
     return _out(output, True)
 
 
+# How long the check once deployed waits for the deployment to go live, and between its reads.
+LIVE_WAIT_SECONDS = 600
+LIVE_READ_INTERVAL = 20
+ROLL_BACK = 'roll back to the previous deployment in the Cloudflare dashboard if the site is broken'
+
+
+def verify_live(site_dir, site_url=SITE_URL, get=http_get, sleep=None, clock=None,
+                wait=LIVE_WAIT_SECONDS, interval=LIVE_READ_INTERVAL):
+    """The check once deployed ("The deploy job checks the live site once deployed"): with no credential,
+    read the live manifest until it is the one in `site_dir` (at most `wait` seconds), then check it and
+    every tile index as the plan job does, the live hashes.json against the deployed one, and in each
+    tile one file of its first built cell that has one. Raises RuntimeError naming what failed."""
+    import time
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    with open(os.path.join(site_dir, 'manifest.json'), 'rb') as fh:
+        deployed = fh.read()
+    with open(os.path.join(site_dir, 'hashes.json'), 'rb') as fh:
+        deployed_hashes = fh.read()
+    deadline = clock() + wait
+    while True:
+        status, body = get_retried(get, f'{site_url}/manifest.json', MAX_MANIFEST_BYTES)
+        if status == 200 and body == deployed:
+            break
+        if clock() >= deadline:
+            raise RuntimeError(f'the live manifest.json is not the one deployed after {wait} s; {ROLL_BACK}')
+        sleep(interval)
+    live = fetch_live(site_url, get)
+    if live is None or live['version'] != 2:
+        raise RuntimeError(f'the live manifest.json is not the version 2 one deployed; {ROLL_BACK}')
+    status, body = get_retried(get, f'{site_url}/hashes.json', MAX_HASHES_BYTES)
+    if status != 200 or body != deployed_hashes:
+        raise RuntimeError(f'the live hashes.json is not the one deployed; {ROLL_BACK}')
+    checked = 0
+    for t in live['tiles']:
+        built = sorted((c for c in live['cells'] if grid.tile_of(c) == t), key=grid.parse_cell)
+        cell = next((c for c in built if site.files_of(c, live['cells'][c])), None)
+        if cell is None:
+            continue
+        files = site.files_of(cell, live['cells'][cell])
+        path, quarter, layer, size = min(files, key=lambda f: f[3])
+        status, data = get_retried(get, f'{site_url}/{path}', size)
+        if status != 200:
+            raise RuntimeError(f'{path} answered {status} on the live site; {ROLL_BACK}')
+        if len(data) != size:
+            raise RuntimeError(f'{path} is {len(data)} bytes on the live site, not its {size}; {ROLL_BACK}')
+        try:
+            check_cell_bytes(data, cell, layer, quarter=quarter)
+        except RuntimeError as e:
+            raise RuntimeError(f'{path} on the live site: {e}; {ROLL_BACK}')
+        checked += 1
+    return checked
+
+
 def _out(output, changed):
     path = output or os.environ.get('GITHUB_OUTPUT')
     if path:
@@ -472,11 +526,24 @@ def _out(output, changed):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('action', choices=['assemble'])
-    ap.add_argument('--artifacts', required=True)
-    ap.add_argument('--out', required=True)
+    ap.add_argument('action', choices=['assemble', 'verify'])
+    ap.add_argument('--artifacts')
+    ap.add_argument('--out')
     ap.add_argument('--state')
+    ap.add_argument('--site')
     args = ap.parse_args(argv)
+    if args.action == 'verify':
+        if not args.site:
+            ap.error('verify needs --site')
+        try:
+            n = verify_live(args.site)
+        except (RuntimeError, ValueError, OSError) as e:
+            print(f'::error::{safe(str(e))}', file=sys.stderr)
+            return 1
+        print(f'The live site is the deployment: its manifest, every tile index and {n} cell file(s) checked.')
+        return 0
+    if not args.artifacts or not args.out:
+        ap.error('assemble needs --artifacts and --out')
     try:
         jobs = json.loads(os.environ.get('PLAN_JOBS', ''))
         if not isinstance(jobs, list) or not all(isinstance(j, str) for j in jobs):
