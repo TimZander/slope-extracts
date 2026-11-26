@@ -19,8 +19,8 @@ region's copy SHALL be planned from that region's own entry in the live manifest
 
 ### Requirement: A build job is never given the same cell twice
 
-The plan job SHALL start a new job rather than give one job the same cell for two regions, keeping the
-cells' order. The deploy job SHALL fail, publishing nothing, when a job in the plan's list names one
+The plan job SHALL fill each job with the next cells in order, up to 3, but start a new job rather
+than give one job the same cell for two regions. The deploy job SHALL fail, publishing nothing, when a job in the plan's list names one
 cell twice, for one region or for two.
 
 #### Scenario: Two copies next to each other in the plan
@@ -34,6 +34,27 @@ cell twice, for one region or for two.
 - **THEN** the deploy job fails and nothing is deployed
 
 ## MODIFIED Requirements
+
+### Requirement: A build job publishes only the cells the plan gave it
+
+The deploy job SHALL take the plan's job list, and fail, publishing nothing, when an artifact is not
+`cells-<n>` for a job the plan made, when its `jobs.txt` is not that job's planned list, or when the plan
+lists one region's cell twice. Two regions' copies of a cell, in different jobs, are not listed twice.
+
+#### Scenario: An artifact the plan didn't make
+
+- **WHEN** a build job also uploads `cells-99` with cells it wasn't given
+- **THEN** the deploy job fails
+
+#### Scenario: One region's cell in two jobs
+
+- **WHEN** the plan's job list holds `utah/164_-445` in one job and `utah/164_-445` again in another
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: Two regions' copies in two jobs
+
+- **WHEN** the plan's job list holds `wyoming/164_-445` in one job and `utah/164_-445` in another, and both build
+- **THEN** the deploy job publishes both copies
 
 ### Requirement: A run builds missing and stale cells, at most 48
 

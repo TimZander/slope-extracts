@@ -39,13 +39,25 @@ change to the cell format, the manifest's form or the workflow file.
 
 5. **The bounds**, inset 0.01° from a state line that lies on a cell line (as Colorado's are), so the
    box doesn't touch a row or column beyond it: Wyoming 41.01 / −111.04 / 44.99 / −104.06 (osm-extracts'
-   values), Utah 37.01 / −114.04 / 41.99 / −109.06, Idaho 42.01 / −117.23 / 48.99 / −111.05.
-6. **The plan starts a new job when the next cell is already in the current one**, rather than
-   sorting or deduplicating, so cells keep their order and every region's copy is still planned. A
-   job then has at most 3 cells, not always 3; the run still builds at most 48.
-7. **The deploy job refuses a job list naming a cell twice**, for any region, rather than reading the
-   artifact per region: a build job's folders are named by cell, so the deploy job couldn't tell the
-   two copies apart.
+   values), Utah 37.01 / −114.04 / 41.99 / −109.06, Idaho 42.01 / −117.23 / 48.99 / −111.05. Each gives
+   the cell counts above; no requirement depends on the exact insets.
+
+## Open Questions
+
+1. **How does the plan keep a job from holding a cell twice?** Assumption: it fills each job with the
+   next cells in order, up to 3, and starts a new job when the next cell is already in the current
+   one; cells keep their order and every region's copy is still planned, so a job may hold fewer than
+   3 and a run at most 48 cells in more jobs. The other way: reorder the cells so copies never meet
+   (moves cells out of coverage order).
+2. **What does the deploy job do with a job list naming a cell twice?** Assumption: it fails,
+   publishing nothing, for one region or two. A build job's folders are named by cell, so the deploy
+   job can't tell two copies apart in one artifact. The other way: build into `<region>/<cell>/`
+   folders (changes the artifact's layout and its checks).
+3. **Does the manifest's reader need a change for a cell listed by two regions?** Assumption: no. Both
+   copies are built from the same DEM and recipe, so they're the same polygons; a reader that loads
+   one region sees each cell once, and one that loads two neighbouring regions may fetch and draw a
+   border cell twice, which for an overlay of filled polygons looks the same. A reader that wants one
+   copy can take the first region listing it. The manifest's form doesn't change.
 
 ## Risks / Trade-offs
 
@@ -65,4 +77,7 @@ fails the deploy, so the owner would also need to accept the drop (a separate ch
 
 ## Review rounds
 
-(Recorded as they happen.)
+- Spec review, round 1 (2026-11-26): 1 blocker (the unchanged "the plan lists a cell twice" read as a
+  cell id would refuse every border cell; now modified to "one region's cell"), 2 should-fix (the
+  reader and a border cell's two copies, now open question 3; decisions 6 and 7 made open questions 1
+  and 2), 1 consider (a job is otherwise filled to 3, now in the requirement).
