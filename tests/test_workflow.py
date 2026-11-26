@@ -167,8 +167,23 @@ def test_packages_are_hash_pinned():
     assert {'numpy', 'rasterio', 'shapely'} <= set(names)
 
 
-def test_regions_list_is_valid():
-    site.validate_regions(json.loads((ROOT / 'regions.json').read_text()))
+def test_areas_list_is_valid():
+    site.validate_areas(json.loads((ROOT / 'areas.json').read_text()))
+    assert not (ROOT / 'regions.json').exists()
+
+
+# Requirement: A version 1 manifest still deploys; The live manifest is checked, with its tile indexes
+def test_the_deploy_runs_on_a_version_1_site_and_checks_the_plans_version():
+    j = jobs()
+    assert 'manifest_version: ${{ steps.plan.outputs.manifest_version }}' in j['plan']
+    assert "if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.count != '0' || needs.plan.outputs.manifest_version == '1') }}" in j['deploy']
+    assert "    if: ${{ needs.plan.outputs.count != '0' }}" in j['build']
+    assemble = j['deploy'].split('- name: Assemble the site', 1)[1].split('- name:', 1)[0]
+    assert 'PLAN_MANIFEST_VERSION: ${{ needs.plan.outputs.manifest_version }}' in assemble
+
+
+def test_the_plan_job_has_time_for_its_tile_reads():
+    assert '    timeout-minutes: 30\n' in jobs()['plan']
 
 
 def test_nothing_runs_until_building_is_turned_on():
@@ -258,3 +273,15 @@ def test_attack_a_refused_call_leaves_nothing_and_prints_nothing(tmp_path):
     assert r.returncode != 0
     assert 'SECRET-BODY' not in r.stdout + r.stderr and TOKEN not in r.stdout + r.stderr
     assert list(temp.iterdir()) == []
+
+
+# Requirement: The deploy job checks the live site once deployed ("The check holds no secret")
+def test_the_live_site_is_checked_after_the_deployment_without_a_secret():
+    steps = deploy_steps()
+    names = list(steps)
+    assert names[-1] == 'Check the live site'
+    st = steps['Check the live site']
+    assert 'secrets.' not in st and 'env:' not in st
+    assert "if: steps.site.outputs.changed == 'true'" in st
+    assert 'run: python3 -m slope_extracts.publish verify --site _site\n' in st + '\n'
+    assert names.index('Create the deployment') < names.index('Check the live site')

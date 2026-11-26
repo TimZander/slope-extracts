@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "The areas list": null,
+      "A cell is built and stored once, whatever covers it": null,
+      "Cells are indexed by 2-degree tiles": null,
+      "A built cell's entry gives its build and its layers": null,
+      "Each tile has an overview of its built cells' tier 4": null,
+      "The manifest lists tiles and areas": null,
+      "A tile's entry counts and masks its cells": null,
+      "A layer with no polygons has no file": null,
+      "The live manifest is checked, with its tile indexes": null,
+      "A version 1 manifest still deploys": null,
+      "The first run moves the cells onto the grid": null,
+      "The deploy job checks the live site once deployed": null,
+      "A cell is three gzip JSON layer files": "892ae3e511159e6090ffc01c02b4f9f8228757909fe8ee573cdc9921692cc978",
+      "A quarter file names its cell and its quarter": "b25622364ddfa369df8d3d450f778e9c36d27ad8d3b678e69bd83c5bd84e6772",
+      "A run builds missing and stale cells, at most 48": "2b15281e400d1f17873ca36b9e5d2090159a4a2a90db3856549f2749453c8fde",
+      "Deploying adds to the live site": "c91acc9beb244340fe579aff6f7e6ce1d1d5ae082846a50119b532f42b2636c1",
+      "The site sets its CORS and cache headers": "ca03ee16553678ee5a4bf617a756035d78e6b3f1575e624eba136b56c89f05d0",
+      "The manifest lists quartered cells apart from whole ones": "22fcfdca974f55877cd035ba3a3d330c93cd49e6bb5baca8078bc1fbd84d5421",
+      "The deploy job writes the overview from the cells it publishes": "b211a9d3a4e3ef6adff85d668a912d81171dbf83f582c57fa9d85fcb2ac0c289",
+      "The deploy job accepts only well-formed cells": "a4dfe9e685ab4eca7bff408af7a8e65788cbe58adac46fa6f6ab5ba7555cc361",
+      "The deploy job accepts only well-formed split cells": "1dab777b8d998098c9ecfa5e6775ac7c624c19d13770075737a767c846ded3f2",
+      "The site lists its files' hashes": "24f3fcbd26c3d9a096a8a196ac01d4e5d0cd07ed3a6f6d3f1b4513997a944ad6",
+      "A deploy reads back only what it needs": "59219a0747fbddb9d9bceea77c09a112c1dd1c0efadaa4ea04aaf0b47ec678cb",
+      "The manifest marks a left-out layer": "033ae4dbf629ee089532d80534bf47161249b843c750a7cfa6c343eab71b511d",
+      "A quarter holds its cell's polygons clipped to the quarter": "7cd9c1cf0a27a920fc5e30b0ab8b540da00b23afb656e10cbfb6b196c8037db5",
+      "Files read back from the live site are checked": "fd527808a9f21ef3c0a35a3de18aa6fd3f3e1cb37e465b1d38f21a022618a25d",
+      "The live hashes belong to the live manifest": "7d98c79a5761b9f9d91432b7ecf4c3267af3f0886152df49139159de4a2f22a2",
+      "Files keep their content types": "e64a4b583422b72e8e002909f7b26ce8bbbe5370423c2f5f6489313a4ab92186",
+      "A failed cell keeps its previous files": "cc3d238296430660a0a9a707619b01d1e923041792d19572f808c3c52e8e77fa",
+      "The site holds at most 19,000 files": "eb3ecec2b1a3c94a3d4cde1e784a599807730fba90c6542b5d1cfe2c52ec480a",
+      "A deploy uploads only the files Cloudflare lacks": "a1ae94752b79dcd3c344f6012891992e1d7026e7c1c9312844341bc231c59c87",
+      "A cell too large to publish whole is split into its four quarters": "312f989d0c96ece3fc769731f0e5674aec249c86e8678d3cde45a8751c35710b",
+      "The regions list": "140c34c4a0851ec89be0b5075b4cf9a5e8cd869c5cf61bde55e074ffe9a85054",
+      "The manifest lists each region's coverage and built cells": "f8c84b1524cd9d0a00490148a8b60dc81e3cce7535bbedff17c09a5ae2ad317f",
+      "Each region has an overview of its built cells' tier 4": "9751b6f37a3de13076a23f4992b0f3dd19fe0972cff14329346807ec67ce9349",
+      "The manifest gives each region's overview": "c2ea49b3ffed94a2ce4d5543c189d1a84154582b6af8652dc0438aa66c044b8e"
+    }
+  }
+}

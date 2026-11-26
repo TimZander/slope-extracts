@@ -2,7 +2,8 @@
 
     python -m slope_extracts.build_cell <cell-id> --out <dir> [--dem <GeoTIFF> ...]
 
-Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json. When any of those files
+Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json; a layer with no polygon
+has no file, its entry EMPTY. When any of those files
 would be over the deploy job's limits, the cell is split instead: <dir>/<cell>/<quarter>/<layer>.json.gz
 for its four 0.125-degree quarters, each the cell's polygons clipped to the quarter. A quarter's t0-2m
 still over a limit is left out (no file; its entry is LEFT_OUT); a quarter's other layer over one fails
@@ -33,6 +34,8 @@ MAX_JSON_BYTES = publish.MAX_CELL_JSON
 # The only layer that may be left out, and its entry when it is: no file, nothing counted.
 OPTIONAL_LAYER = 't0-2m'
 LEFT_OUT = {'bytes': 0, 'tiers': {'0': {'polygons': 0, 'points': 0}}}
+# A layer with no polygon: no file either (a layer file is never 0 bytes).
+EMPTY = {'bytes': 0, 'tiers': {}}
 
 
 def _layer_bands(z, transform, crs, cell_id, p):
@@ -131,12 +134,21 @@ def _encode(doc):
     return raw, data, over
 
 
+def _empty(stats):
+    """Whether a layer's tiers hold no polygon: it is published as no file (EMPTY)."""
+    return not any(t['polygons'] for t in stats.values())
+
+
 def _write_whole(cell_dir, encoded):
     layers = {}
     for name, (raw, data, _over) in encoded.items():
+        stats = cellfile.stats(json.loads(raw))
+        if _empty(stats):
+            layers[name] = copy.deepcopy(EMPTY)
+            continue
         with open(os.path.join(cell_dir, f'{name}.json.gz'), 'wb') as fh:
             fh.write(data)
-        layers[name] = {'bytes': len(data), 'tiers': cellfile.stats(json.loads(raw))}
+        layers[name] = {'bytes': len(data), 'tiers': stats}
     return layers
 
 
@@ -150,6 +162,10 @@ def _write_quarters(cell_id, cell_dir, tiers, log):
         cut = {t: classes.clip_to_quarters(cell_id, by_class) for t, by_class in tiers[name].items()}
         for q in qs:
             doc = cellfile.build(cell_id, name, {t: c[q] for t, c in cut.items()}, quarter=q)
+            stats = cellfile.stats(doc)
+            if _empty(stats):
+                out[q]['layers'][name] = copy.deepcopy(EMPTY)
+                continue
             raw, data, over = _encode(doc)
             if over:
                 if name != OPTIONAL_LAYER:
@@ -160,7 +176,7 @@ def _write_quarters(cell_id, cell_dir, tiers, log):
                 continue
             with open(os.path.join(cell_dir, q, f'{name}.json.gz'), 'wb') as fh:
                 fh.write(data)
-            out[q]['layers'][name] = {'bytes': len(data), 'tiers': cellfile.stats(doc)}
+            out[q]['layers'][name] = {'bytes': len(data), 'tiers': stats}
         del cut
     return out
 
@@ -176,8 +192,8 @@ def _http_exists(url):
 
 
 def main(argv=None):
-    """Cells are given as `<cell>` or, from the workflow's plan, `<region>/<cell>`; the list as given
-    is written to <out>/jobs.txt, which the deploy job checks the artifact against."""
+    """Cells are given as plain ids, as the workflow's plan lists them; the list as given is written to
+    <out>/jobs.txt, which the deploy job checks the artifact against."""
     ap = argparse.ArgumentParser()
     ap.add_argument('cells', nargs='+')
     ap.add_argument('--out', required=True)
@@ -188,7 +204,7 @@ def main(argv=None):
         fh.write(' '.join(args.cells) + '\n')
     failed = []
     for item in args.cells:
-        c = item.rsplit('/', 1)[-1]
+        c = item
         try:
             build(c, args.out, args.dem)
         except Exception as e:  # one cell's failure leaves the others' files; named, then the run fails

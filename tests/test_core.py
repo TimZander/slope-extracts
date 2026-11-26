@@ -271,7 +271,7 @@ def test_build_a_quarters_2m_layer_still_too_large_is_left_out(mini_cell, cone_d
     assert all(entry['quarters'][q]['layers']['t0-2m']['bytes'] > 0 for q in QUARTERS[1:])
     assert any(m.startswith('::warning::') and mini_cell in m and '316_-850' in m and 't0-2m' in m for m in logged)
     out = tmp_path / 'out'
-    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem]) == 0
+    assert build_cell.main([mini_cell, '--out', str(out), '--dem', cone_dem]) == 0
     assert not (out / 'failed.json').exists()
 
 
@@ -287,7 +287,7 @@ def test_build_a_quarters_3m_layer_too_large_fails_the_cell(mini_cell, cone_dem,
     with pytest.raises(RuntimeError, match='316_-850/t0-3m is .* over the .*-byte limit per file'):
         build_cell.build(mini_cell, str(tmp_path), [cone_dem], log=lambda *_: None)
     assert not (tmp_path / mini_cell).exists()
-    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(tmp_path / 'o'), '--dem', cone_dem]) == 1
+    assert build_cell.main([mini_cell, '--out', str(tmp_path / 'o'), '--dem', cone_dem]) == 1
 
 
 def test_build_a_quarters_zoomed_out_json_too_large_fails_and_leaves_no_folder(
@@ -296,7 +296,7 @@ def test_build_a_quarters_zoomed_out_json_too_large_fails_and_leaves_no_folder(
     monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
     _pad_json(monkeypatch, 't1-4', 2_000_001)
     out = tmp_path / 'out'
-    rc = build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem])
+    rc = build_cell.main([mini_cell, '--out', str(out), '--dem', cone_dem])
     assert rc == 1
     assert sorted(p.name for p in out.iterdir()) == ['failed.json', 'jobs.txt']
     assert json.loads((out / 'failed.json').read_text()) == [mini_cell]
@@ -310,24 +310,20 @@ def test_a_cell_that_fails_after_writing_a_layer_does_not_block_the_deploy(
     other = '158_-424'
     monkeypatch.setattr(build_cell, 'MAX_JSON_BYTES', 2_000_000)
     _pad_json(monkeypatch, 't1-4', 2_000_001, cell=mini_cell)
-    jobs = f'colorado/{mini_cell} colorado/{other}'
+    jobs = f'{mini_cell} {other}'
     out = tmp_path / 'artifacts' / 'cells-0'
     assert build_cell.main(jobs.split() + ['--out', str(out), '--dem', cone_dem]) == 1
-    region = [{'id': 'colorado', 'name': 'Colorado',
-               'bounds': {'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}}]
-    built = publish.read_artifacts(str(tmp_path / 'artifacts'), region, [jobs])
-    assert set(built) == {('colorado', other)}
+    built = publish.read_artifacts(str(tmp_path / 'artifacts'), {mini_cell, other}, [jobs])
+    assert set(built) == {other}
 
 
 def test_a_split_cell_passes_the_deploy_checks(mini_cell, cone_dem, tmp_path, monkeypatch):
     from slope_extracts import publish
     _pad_gzip(monkeypatch, 't0-2m', build_cell.MAX_FILE_BYTES, where=_whole)
     out = tmp_path / 'artifacts' / 'cells-0'
-    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem]) == 0
-    region = [{'id': 'colorado', 'name': 'Colorado',
-               'bounds': {'south': 37.01, 'west': -109.04, 'north': 40.99, 'east': -102.06}}]
-    built = publish.read_artifacts(str(tmp_path / 'artifacts'), region, [f'colorado/{mini_cell}'])
-    entry, paths = built[('colorado', mini_cell)]
+    assert build_cell.main([mini_cell, '--out', str(out), '--dem', cone_dem]) == 0
+    built = publish.read_artifacts(str(tmp_path / 'artifacts'), {mini_cell}, [mini_cell])
+    entry, paths = built[mini_cell]
     assert list(entry['quarters']) == QUARTERS and len(paths) == 12
 
 
@@ -358,14 +354,16 @@ def test_build_a_gzip_file_exactly_at_the_limit_stays_whole(mini_cell, cone_dem,
 def test_build_a_3m_layer_too_large_whole_splits_the_cell(mini_cell, cone_dem, tmp_path, monkeypatch):
     _pad_gzip(monkeypatch, 't0-3m', build_cell.MAX_FILE_BYTES, where=_whole)
     out = tmp_path / 'out'
-    assert build_cell.main([f'colorado/{mini_cell}', '--out', str(out), '--dem', cone_dem]) == 0
+    assert build_cell.main([mini_cell, '--out', str(out), '--dem', cone_dem]) == 0
     entry = json.loads((out / mini_cell / 'entry.json').read_text())
     assert list(entry['quarters']) == QUARTERS
     assert all((out / mini_cell / q / 't0-3m.json.gz').exists() for q in QUARTERS)
 
 
 # Requirement: A quarter holds its cell's polygons clipped to the quarter ("A quarter with no steep ground")
-def test_a_quarter_with_no_steep_ground_is_written_with_its_classes_empty(tmp_path):
+def test_a_quarter_with_no_steep_ground_writes_no_file(tmp_path):
+    # Requirement: A quarter holds its cell's polygons clipped to the quarter ("A quarter with no steep
+    # ground"); A layer with no polygons has no file
     cell = '158_-425'
     s, w, _n, _e = grid.cell_bounds(cell)
     y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
@@ -375,9 +373,29 @@ def test_a_quarter_with_no_steep_ground_is_written_with_its_classes_empty(tmp_pa
              't1-4': {1: {35: [], 40: [], 45: [], 55: []}, 2: {35: [], 40: [], 45: []}, 3: {35: [], 40: [], 45: []},
                       4: {30: [poly]}}}
     os.makedirs(tmp_path / cell)
-    build_cell._write_quarters(cell, str(tmp_path / cell), tiers, log=lambda *_: None)
-    for layer in ('t0-3m', 't0-2m', 't1-4'):
-        doc = cellfile.loads((tmp_path / cell / '317_-849' / f'{layer}.json.gz').read_bytes())
-        assert set(doc['tiers']) == {str(t) for t in tiers[layer]}
-        assert all(polys == [] for c in doc['tiers'].values() for polys in c.values())
-        assert {t: set(c) for t, c in doc['tiers'].items()} == {str(t): {str(b) for b in c} for t, c in tiers[layer].items()}
+    out = build_cell._write_quarters(cell, str(tmp_path / cell), tiers, log=lambda *_: None)
+    assert out['317_-849']['layers'] == {l: {'bytes': 0, 'tiers': {}} for l in ('t0-3m', 't0-2m', 't1-4')}
+    assert list((tmp_path / cell / '317_-849').iterdir()) == []
+    # the quarter that holds the polygon lists its classes, the empty ones too
+    doc = cellfile.loads((tmp_path / cell / '316_-850' / 't1-4.json.gz').read_bytes())
+    assert {t: set(c) for t, c in doc['tiers'].items()} == {str(t): {str(b) for b in c} for t, c in tiers['t1-4'].items()}
+
+
+# Requirement: A layer with no polygons has no file ("A flat cell")
+def test_build_a_flat_cell_writes_no_layer_file(mini_cell, tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_bounds
+    from conftest import CRS, MINI
+    s, w, n, e = MINI
+    left, bottom, right, top = transform_bounds('EPSG:4326', CRS, w, s, e, n, densify_pts=21)
+    left, bottom, right, top = left - 400, bottom - 400, right + 400, top + 400
+    width, height = int(right - left), int(top - bottom)
+    path = tmp_path / 'flat.tif'
+    with rasterio.open(path, 'w', driver='GTiff', width=width, height=height, count=1, dtype='float32', crs=CRS,
+                       transform=from_origin(left, top, 1.0, 1.0), nodata=np.nan) as dst:
+        dst.write(np.full((height, width), 1500.0, dtype='float32'), 1)
+    entry = build_cell.build(mini_cell, str(tmp_path / 'out'), [str(path)], log=lambda *_: None)
+    assert entry['layers'] == {l: {'bytes': 0, 'tiers': {}} for l in ('t0-3m', 't0-2m', 't1-4')}
+    assert sorted(p.name for p in (tmp_path / 'out' / mini_cell).iterdir()) == ['entry.json']

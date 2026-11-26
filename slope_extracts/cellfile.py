@@ -1,6 +1,6 @@
 """The cell file format, "slope-cell" version 1 (garmin-map's slope layer reads it).
 
-A cell file is gzip-compressed JSON (UTF-8), served as `<region>/<cell>/<layer>.json.gz`:
+A cell file is gzip-compressed JSON (UTF-8), served as `cells/<cell>/<layer>.json.gz`:
 
     {"format": "slope-cell", "version": 1, "cell": "158_-425", "layer": "t0-3m",
      "tiers": {"0": {"30": [polygon, ...], "35": [...], ...}}}
@@ -13,7 +13,7 @@ A cell file is gzip-compressed JSON (UTF-8), served as `<region>/<cell>/<layer>.
   from the one before. At least 3 points; the ring closes back to its first point implicitly.
 
 A split cell (one too large to publish whole) is four quarter files instead, served as
-`<region>/<cell>/<quarter>/<layer>.json.gz`, each with one more key, `quarter` (its "<qrow>_<qcol>"
+`cells/<cell>/<quarter>/<layer>.json.gz`, each with one more key, `quarter` (its "<qrow>_<qcol>"
 id), after `cell`, which stays the parent cell's id.
 
 The contract is only geometry per class, so anything that computes the same classes (a later

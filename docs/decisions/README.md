@@ -33,3 +33,10 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0025](0025-the-token-reaches-two-curl-calls-only.md) | The Cloudflare token reaches only two curl calls; the upload token is masked and passed in a file | accepted |
 | [0026](0026-wrangler-replaced-by-blake3-wasm.md) | Wrangler is replaced by its hashing package, `blake3-wasm` 2.1.5 | accepted |
 | [0027](0027-the-purpose-edited-in-place.md) | The spec's Purpose is edited in place for the deploy credential's two calls | accepted |
+| [0028](0028-areas-are-hand-drawn-boxes.md) | Areas are lists of hand-drawn boxes, not outlines | proposed |
+| [0029](0029-tiles-of-two-degrees.md) | The grid is indexed by 2-degree tiles of 64 cells | proposed |
+| [0030](0030-switch-to-manifest-version-2-at-once.md) | The site switches to manifest version 2 at once | proposed |
+| [0031](0031-no-file-for-an-empty-layer.md) | A layer with no polygons has no file | proposed |
+| [0032](0032-tile-entries-carry-cell-masks.md) | A tile's manifest entry carries cell masks; the index's size is `indexBytes` | proposed |
+| [0033](0033-the-version-2-contract.md) | The version 2 contract: `manifest.json` version 2, `slope-tile` indexes, `slope-overview` version 2 | proposed |
+| [0034](0034-check-the-live-site-once-deployed.md) | The deploy job checks the live site once deployed; a rollback stays manual | proposed |
