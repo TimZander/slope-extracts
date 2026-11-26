@@ -62,8 +62,9 @@ cell file's form or the recipe.
 2. **Order of building.** Assumption: areas in list order (the order the manifest lists them in), each area's cells in row then column order,
    a shared cell when its first area reaches it.
 3. **A region's `only` list.** Assumption: dropped; unused since ADR 0010, and a small box does the same.
-4. **Removing or shrinking an area.** Assumption: as removing a region today, the deploy refuses a site
-   with fewer cells, so it needs its own change.
+4. **Removing or shrinking an area.** Assumption: the deploy refuses a site that leaves out any built
+   cell the live one holds (not only a smaller count, which other cells built in the same run could
+   hide), so removing cells needs its own change.
 
 ## Risks / Trade-offs
 

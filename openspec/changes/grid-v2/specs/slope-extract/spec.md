@@ -220,7 +220,13 @@ manifest is published.
 #### Scenario: A v1 cell no area covers
 
 - **WHEN** the version 1 manifest lists a cell under a region that no area's boxes cover
-- **THEN** the new site would hold fewer built cells, so the deploy job fails and nothing is deployed
+- **THEN** the new site would leave that cell out, so the deploy job fails and nothing is deployed
+
+#### Scenario: A v1 cell no area covers, while a run builds more
+
+- **WHEN** the version 1 manifest lists a cell no area's boxes cover, and a run builds two cells
+- **THEN** the new site would leave that cell out though it holds more cells, so the deploy job fails
+  and nothing is deployed
 
 #### Scenario: A v1 left-out 2 m layer
 
@@ -536,8 +542,8 @@ this run didn't build.
 #### Scenario: A run after a run
 
 - **WHEN** the live site holds one cell and its `hashes.json`, Cloudflare holds every kept hash, and a run builds another cell
-- **THEN** the deploy job requests from the live site `manifest.json`, the tile index, `hashes.json`
-  and the first cell's `t1-4` file only, and the deployment names both cells' files
+- **THEN** the deploy job requests from the live site `manifest.json`, every tile index it lists,
+  `hashes.json` and the first cell's `t1-4` file only, and the deployment names both cells' files
 
 #### Scenario: The first run after this change
 
@@ -608,7 +614,7 @@ checks. The deploy job SHALL fail before the deployment is created otherwise, or
 - the live manifest is invalid, unless the first-deploy switch reads it as no manifest
 - a file it lists answers 404
 - it reads no manifest (a 404, or the switch) though the plan job read one
-- the new site would hold fewer built cells, each once, than the live one
+- the new site would leave out a built cell the live one holds
 
 #### Scenario: A file changed on the live site
 
