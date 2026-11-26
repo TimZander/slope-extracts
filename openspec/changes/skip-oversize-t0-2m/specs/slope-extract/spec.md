@@ -3,8 +3,9 @@
 ### Requirement: An oversize 2 m layer is left out of its cell
 
 When a cell's `t0-2m` file would be over 20 MiB of gzip or 64 MiB of JSON, the build job SHALL write the
-cell without that file, log a warning naming the cell and the layer, and count the cell as built. A
-`t0-3m` or `t1-4` file over 20 MiB SHALL still fail its cell. No limit SHALL change.
+cell without that file, log a GitHub `::warning::` annotation naming the cell and the layer, and count the
+cell as built. A `t0-3m` or `t1-4` file over either limit SHALL fail its cell. The limits are those the
+deploy job checks; this rule changes none of them.
 
 #### Scenario: A 2 m layer too large to publish
 
@@ -21,6 +22,11 @@ cell without that file, log a warning naming the cell and the layer, and count t
 
 - **WHEN** a cell's `t0-3m` file would be 24 MB of gzip
 - **THEN** the cell fails as before and the job ends red
+
+#### Scenario: A zoomed-out layer whose JSON is too large
+
+- **WHEN** a cell's `t1-4` file would be 15 MB of gzip unpacking to 70 MB of JSON
+- **THEN** the build job fails that cell, leaves it out of the artifact, and the job ends red
 
 ### Requirement: The manifest marks a left-out layer
 
@@ -40,7 +46,44 @@ reader can tell the layer is absent without requesting it. `bytes` 0 on `t0-3m` 
 - **WHEN** a build job's entry gives `t1-4` `bytes` 0
 - **THEN** the deploy job fails and nothing is deployed
 
+#### Scenario: A marker with counts
+
+- **WHEN** a build job's entry gives `t0-2m` `bytes` 0 and tier `0` 12 polygons
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: The marker on another layer in the live manifest
+
+- **WHEN** the live manifest gives a cell's `t0-3m` `bytes` 0
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
+
 ## MODIFIED Requirements
+
+### Requirement: Tier 0 holds every band and the cliffs
+
+Tier 0 SHALL hold classes `30`, `35`, `40`, `45` (45–55°) and `55` (cliffs). Cliffs SHALL always come
+from the 2 m DEM (sieve 6 px, simplify 1.8 m, minimum 8 m²). Bands SHALL come from the 3 m DEM in layer
+`t0-3m` (sieve 10 px, simplify 2.7 m, minimum 18 m²) and, unless that layer is left out, from the 2 m DEM
+in layer `t0-2m` (sieve 10 px, simplify 1.8 m, minimum 8 m²).
+
+#### Scenario: A cone of known slopes
+
+- **WHEN** a cell is built from a DEM of concentric rings at 32°, 37°, 42°, 50° and 62°
+- **THEN** both tier-0 layers hold polygons in all five classes
+
+### Requirement: A failed cell keeps its previous files
+
+A cell that fails to build SHALL be left out of its job's artifact, the job SHALL end red, and the deploy
+job SHALL keep that cell's previous files and manifest entry.
+
+#### Scenario: One cell of three fails
+
+- **WHEN** one cell of a job fails and the other two build
+- **THEN** the site publishes the two, keeps the failed cell's previous files, and the run is red
+
+#### Scenario: A cell fails after writing a layer
+
+- **WHEN** a cell fails on its `t1-4` file after its `t0-3m` file was written
+- **THEN** the job's artifact holds no folder for that cell, and the deploy publishes the job's other cells
 
 ### Requirement: A cell is three gzip JSON layer files
 
@@ -64,7 +107,7 @@ points, closed implicitly.
 
 The deploy job SHALL fail, publishing nothing, when:
 - an artifact holds anything but `jobs.txt`, an optional `failed.json` and one folder per listed cell
-- a cell folder holds anything but its layers and `entry.json`
+- a cell folder holds anything but `entry.json` and the layers its entry doesn't mark left out
 - any of these files is not regular, or is over 20 MiB
 - a file is not exactly the slope-cell form of its cell and layer (classes per tier, points within the
   cell), or `entry.json` holds keys or values the manifest doesn't allow
