@@ -189,3 +189,72 @@ def test_the_first_deploy_switch_reaches_plan_and_assemble_through_env():
     assert 'FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}' in plan
     assemble = deploy.split('- name: Assemble the site', 1)[1].split('- name:', 1)[0]
     assert 'FIRST_DEPLOY: ${{ vars.FIRST_DEPLOY }}' in assemble
+
+
+# Attack test (high-risk workflow): run each token step's own shell with a fake curl that records what
+# it was given, and check neither secret reached a program's command line or environment, nothing
+# printed them, and their files are gone afterwards.
+TOKEN = 'cf-secret-TOKEN-1234567890'
+ACCOUNT = 'acct0123456789abcdef'
+
+
+def run_token_step(name, tmp_path, answer):
+    import os
+    import subprocess
+    run = deploy_steps()[name].split('run: |\n', 1)[1]
+    script = '\n'.join(line[10:] for line in run.splitlines() if line.startswith(' ' * 10))
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    record = tmp_path / 'curl-record.json'
+    (bindir / 'curl').write_text(f'''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+out = args[args.index('-o') + 1]
+cfg = open(args[args.index('-K') + 1]).read()
+hdr = open(args[args.index('-H') + 1].lstrip('@')).read()
+json.dump({{'argv': args, 'env': dict(os.environ), 'config': cfg, 'header': hdr}}, open({str(record)!r}, 'w'))
+open(out, 'w').write({json.dumps(answer)!r})
+''')
+    (bindir / 'curl').chmod(0o755)
+    temp = tmp_path / 'runner-temp'
+    temp.mkdir()
+    env = {'PATH': f'{bindir}:/usr/bin:/bin', 'RUNNER_TEMP': str(temp), 'HOME': str(tmp_path),
+           'CLOUDFLARE_API_TOKEN': TOKEN, 'CLOUDFLARE_ACCOUNT_ID': ACCOUNT}
+    r = subprocess.run(['bash', '-e', '-c', script], cwd=ROOT, env=env, capture_output=True, text=True)
+    return r, json.loads(record.read_text()), temp
+
+
+def test_attack_the_upload_token_step_leaks_neither_secret(tmp_path):
+    jwt = 'eyJ.upload-jwt-value.sig'
+    r, rec, temp = run_token_step('Get an upload token', tmp_path, {'success': True, 'result': {'jwt': jwt}})
+    assert r.returncode == 0, r.stderr
+    assert rec['header'] == f'Authorization: Bearer {TOKEN}\n'
+    assert f'/accounts/{ACCOUNT}/pages/projects/slope-extracts/upload-token' in rec['config']
+    for secret in (TOKEN, ACCOUNT):
+        assert not any(secret in a for a in rec['argv'])
+        assert not any(secret in v for v in rec['env'].values())
+        assert secret not in r.stdout + r.stderr
+    assert 'CLOUDFLARE_API_TOKEN' not in rec['env'] and 'CLOUDFLARE_ACCOUNT_ID' not in rec['env']
+    assert r.stdout.splitlines() == [f'::add-mask::{jwt}']
+    assert sorted(p.name for p in temp.iterdir()) == ['pages-jwt']
+    assert (temp / 'pages-jwt').read_text() == jwt
+
+
+def test_attack_the_deployment_step_leaks_neither_secret(tmp_path):
+    r, rec, temp = run_token_step('Create the deployment', tmp_path,
+                                  {'success': True, 'result': {'id': 'dep-1', 'url': 'https://dep-1.slope-extracts.pages.dev'}})
+    assert r.returncode == 0, r.stderr
+    assert f'/accounts/{ACCOUNT}/pages/projects/slope-extracts/deployments' in rec['config']
+    for secret in (TOKEN, ACCOUNT):
+        assert not any(secret in a for a in rec['argv'])
+        assert not any(secret in v for v in rec['env'].values())
+        assert secret not in r.stdout + r.stderr
+    assert r.stdout.strip() == 'Deployed dep-1 at https://dep-1.slope-extracts.pages.dev'
+    assert list(temp.iterdir()) == []
+
+
+def test_attack_a_refused_call_leaves_nothing_and_prints_nothing(tmp_path):
+    r, rec, temp = run_token_step('Get an upload token', tmp_path, {'success': False, 'errors': [{'message': 'SECRET-BODY'}]})
+    assert r.returncode != 0
+    assert 'SECRET-BODY' not in r.stdout + r.stderr and TOKEN not in r.stdout + r.stderr
+    assert list(temp.iterdir()) == []
