@@ -62,8 +62,19 @@ without the `t1-4` files.
    7. create the deployment (curl, the secrets).
 6. **A kept file Cloudflare lacks** is read back from the live site by the upload step, hashed, and
    uploaded only if the hash matches `hashes.json`. A match means the bytes are those the site
-   published and checked before, so it isn't checked again. Cloudflare doesn't say how long it keeps an
-   unreferenced asset, and runs may stop for months after the backfill.
+   published and checked before, so it isn't checked again; that is why "Files read back … are
+   checked" covers only the reads that assemble the site. The upload step streams these reads one
+   bucket (at most 40 MiB) at a time and writes none of them to disk. Cloudflare doesn't say how long
+   it keeps an unreferenced asset, and runs may stop for months after the backfill.
+6a. **Files read back to assemble the site** (every kept `t1-4`, and kept files `hashes.json` doesn't
+   list) go into `_site/` beside this run's files and are deployed from the bytes read. The hash step
+   hashes all of `_site/`, and fails when a read-back file `hashes.json` lists hashes to another value.
+6b. **The live `hashes.json` must belong to the live manifest.** Both are cached five minutes and
+   fetched separately, so they could come from two deployments. The assemble step keeps the live
+   manifest's bytes, and the hash step checks they hash to `hashes.json`'s entry for `/manifest.json`;
+   a mismatch fails the run, and the next run tries again.
+6c. **Every hash of the deployment is confirmed** (`upsert-hashes`) after the upload, as wrangler does,
+   which keeps kept assets fresh in Cloudflare's store.
 7. **`t1-4` files are read back and checked as before**, because the overviews are built from them.
    Every other kept file is never read when its hash is listed.
 8. **Migration needs no step**: with no live `hashes.json` (a 404), every kept file is read back and
@@ -81,14 +92,23 @@ without the `t1-4` files.
 2. **Is Cloudflare's undocumented upload API stable?** Assumption: it is the one wrangler 3 and 4 use,
    so it changes rarely. If it breaks, the deploy fails before creating a deployment and the live site
    stays as it was; the fix is to follow wrangler's change.
+3. **The spec's Purpose** still says "with its deploy credential confined to one step". A delta can't
+   carry a Purpose, and the workflow forbids editing `openspec/specs/` by hand, so this change leaves it.
+   Assumption: the owner decides how to correct it (a hand edit they make or allow, or leaving it as a
+   known stale line); the requirements below state the two steps.
 
 ## Risks / Trade-offs
 
 - [The API is wrangler's internal one] → open question 2; the failure mode is "nothing deployed".
 - [Our code now makes the Cloudflare calls] → only the JWT reaches it; the account-wide token stays in
   two curl calls. Security review and attack tests cover both steps.
-- [A kept file isn't re-checked each run] → its hash pins it to bytes a deploy checked before; a live
-  file that changed fails the deploy.
+- [A kept file isn't re-checked each run] → its hash pins it to bytes a deploy checked before. A live
+  file changed behind the pipeline's back is not detected while Cloudflare still holds its old hash:
+  the deployment names the old hash, so the change is undone, not published. One read back (a `t1-4`,
+  or one Cloudflare lacks) that hashes differently fails the deploy.
+- [Cloudflare drops every kept asset, say after a year without a deploy] → the upload step reads the
+  whole site back once, streamed, about the time today's deploy takes per cell; the JWT may expire on a
+  long upload (open question 1), and the next run goes on from what was confirmed.
 - [The first run after merge still reads the whole site back] → about 2.5 s per cell, fine at today's
   size.
 
@@ -100,4 +120,8 @@ the site.
 
 ## Review rounds
 
-(Recorded as they happen.)
+- Spec review, round 1 (2026-11-26): 1 blocker (the read-back check covered the upload step's hash-only
+  re-reads; now only reads that assemble the site), 10 should-fix (taken: the risk line, two scenarios'
+  premises, where read-back bytes go and how they're hashed, tying `hashes.json` to the manifest,
+  streaming re-reads, content types, `upsert-hashes`, replacing the old tests; the stale Purpose is
+  open question 3), 5 consider (all taken).

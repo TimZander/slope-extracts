@@ -19,14 +19,14 @@ first 32 hex digits of the BLAKE3 hash of the file's base64 text followed by its
 
 ### Requirement: A deploy reads back only what it needs
 
-The deploy job SHALL read back from the live site its `hashes.json`, the `t1-4` files of the cells it
-keeps (for the overviews), and every other kept file `hashes.json` doesn't list; it SHALL take each
-other kept file's hash from `hashes.json` unread. With no live manifest it SHALL read no `hashes.json`;
-one that answers 404 SHALL list nothing; one not of its form SHALL fail the deploy.
+The deploy job SHALL read back from the live site `hashes.json`, the kept cells' `t1-4` files (for the
+overviews) and each kept file `hashes.json` doesn't list, and deploy them from the bytes read; it SHALL
+take every other kept file's hash from `hashes.json` unread. With no live manifest it SHALL read no
+`hashes.json`; one answering 404 SHALL list nothing. Paths it lists that aren't kept are ignored.
 
 #### Scenario: A run after a run
 
-- **WHEN** the live site holds one cell and its `hashes.json`, and a run builds another cell
+- **WHEN** the live site holds one cell and its `hashes.json`, Cloudflare holds every kept hash, and a run builds another cell
 - **THEN** the deploy job requests `manifest.json`, `hashes.json` and the first cell's `t1-4` file
   only, and the deployment names both cells' files
 
@@ -41,12 +41,33 @@ one that answers 404 SHALL list nothing; one not of its form SHALL fail the depl
 - **WHEN** the live `hashes.json` maps a kept file to `"zz"`
 - **THEN** the deploy job fails and nothing is deployed
 
+### Requirement: The live hashes belong to the live manifest
+
+The deploy job SHALL fail, creating no deployment, when the live `hashes.json` is not of its form or
+answers other than 200 or 404, when its entry for `/manifest.json` is not the hash of the manifest the
+deploy job read, or when a file it reads back doesn't hash to the entry `hashes.json` gives it.
+
+#### Scenario: Hashes from another deployment
+
+- **WHEN** the live `hashes.json` was written with an older manifest than the live one
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A `t1-4` file that doesn't match its hash
+
+- **WHEN** a kept cell's `t1-4` file reads back with bytes whose hash differs from `hashes.json`'s
+- **THEN** the deploy job fails and no deployment is created
+
+#### Scenario: A path that is no longer kept
+
+- **WHEN** the live `hashes.json` lists the whole-cell files of a cell this run builds split
+- **THEN** the deploy job ignores those entries, and the new `hashes.json` lists the cell's quarters' files only
+
 ### Requirement: A deploy uploads only the files Cloudflare lacks
 
-The deploy job SHALL ask Cloudflare which of the deployment's hashes it lacks and upload only those
-files. A lacking file this run wrote SHALL be uploaded from the run's folder; a lacking kept file SHALL
-be read back from the live site and uploaded only if its hash is the one `hashes.json` gives, and the
-deploy SHALL fail, creating no deployment, otherwise.
+The deploy job SHALL ask Cloudflare which of the deployment's hashes it lacks, upload only those files,
+then confirm every hash of the deployment to Cloudflare. A lacking file in the run's folder SHALL be
+uploaded from it; any other SHALL be read back, a bucket at a time without writing it to disk, and
+uploaded only if it hashes to `hashes.json`'s entry, or the deploy SHALL fail with no deployment.
 
 #### Scenario: Only new files
 
@@ -63,6 +84,16 @@ deploy SHALL fail, creating no deployment, otherwise.
 - **WHEN** Cloudflare lacks a kept file's hash, and the live site serves that path with other bytes
 - **THEN** the deploy job fails and no deployment is created
 
+### Requirement: Files keep their content types
+
+Every file the deploy job uploads SHALL carry the content type wrangler gave it: `application/gzip`
+for `.gz`, `application/json` for `.json`, `text/html` for `.html` and `text/plain` for `.txt`.
+
+#### Scenario: A cell file's type
+
+- **WHEN** a run uploads `colorado/158_-425/t1-4.json.gz` and `manifest.json`
+- **THEN** they are sent as `application/gzip` and `application/json`
+
 ### Requirement: The deploy's one package is installed from its lockfile
 
 The deploy job SHALL install only `blake3-wasm` 2.1.5, with `npm ci --ignore-scripts` from
@@ -74,18 +105,23 @@ the repository.
 - **WHEN** `deploy/package.json` and its lockfile are read
 - **THEN** the only dependency is `blake3-wasm` 2.1.5, with its integrity hash, and the package has no install script
 
+#### Scenario: Reading the install step
+
+- **WHEN** the workflow file is read
+- **THEN** the deploy job installs with `npm ci --ignore-scripts` in a step that names no secret
+
 ### Requirement: The Cloudflare token reaches two curl calls only
 
 The token and account id SHALL be secrets of the Environment `pages-production`, which only the deploy
 job uses. Only two steps, after the assemble and hash steps, SHALL be given them: one that fetches an
 upload token for project `slope-extracts`, one that creates the deployment from files earlier steps
-wrote. Each SHALL give the token to curl in a header file, not on its command line, and print no
-response.
+wrote. Each SHALL give it to curl in a header file it removes on exit, never on a command line, and
+print no response. The plan and build jobs SHALL hold no secret.
 
 #### Scenario: Reading the deploy job
 
 - **WHEN** the workflow file is read
-- **THEN** `secrets.` appears in exactly two steps of the deploy job, each calling only `api.cloudflare.com` with curl, both after the assemble step, and in no other job
+- **THEN** `secrets.` appears in exactly two steps of the deploy job, each calling only `api.cloudflare.com` with curl, both after the assemble and hash steps, and in no other job
 
 ### Requirement: The upload token stays out of the log
 
@@ -125,7 +161,7 @@ beside it. A run that built no cell SHALL deploy nothing.
 
 ### Requirement: Files read back from the live site are checked
 
-Each file read back from the live site SHALL be the size the live manifest gives it and pass the cell-file
+Each file read back to assemble the site SHALL be the size the live manifest gives it and pass the cell-file
 checks. The deploy job SHALL fail before the deployment is created otherwise, or when:
 - the live manifest is invalid, unless the first-deploy switch reads it as no manifest
 - a file it lists answers 404
@@ -134,7 +170,7 @@ checks. The deploy job SHALL fail before the deployment is created otherwise, or
 
 #### Scenario: A file changed on the live site
 
-- **WHEN** a live cell file's size differs from the live manifest's
+- **WHEN** a live cell file the deploy job reads back to assemble the site differs in size from the live manifest's
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: A live cell without its 2 m layer
@@ -221,6 +257,26 @@ file.
 
 - **WHEN** the live manifest gives a region an `overview` entry with any value
 - **THEN** the plan and deploy jobs accept it, use none of it, and write the new entry from the new overview
+
+### Requirement: The site holds at most 19,000 files
+
+The deploy job SHALL fail before the deployment is created when the site would hold more than 19,000
+files, `hashes.json` counted.
+
+#### Scenario: Too many files
+
+- **WHEN** the manifest would name 19,001 files
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: Counting a split cell's files
+
+- **WHEN** a region has one whole cell and one split cell with one quarter's `t0-2m` left out
+- **THEN** the site's file count includes 3 files for the whole cell and 11 for the split one
+
+#### Scenario: Counting the hashes file
+
+- **WHEN** the deployment would name 18,999 files besides `hashes.json`
+- **THEN** the site would hold 19,000 files, and the deploy goes ahead
 
 ## REMOVED Requirements
 

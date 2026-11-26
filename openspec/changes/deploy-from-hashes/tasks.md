@@ -4,7 +4,7 @@
 
 - [ ] 1.1 Python tests for the new and changed scenarios, seen to fail: the read-back plan, `hashes.json` checks, the deploy folder and state, headers
 - [ ] 1.2 Node tests, seen to fail: the hash vector, `hashes.json` and the deployment manifest, uploading only missing hashes, a kept file re-read and hash-checked, a changed one failing, the token file removed and nothing printed
-- [ ] 1.3 Workflow tests: the two curl steps hold the secrets, the mask comes first, no output or environment carries the token, the one package from the lockfile
+- [ ] 1.3 Workflow tests: the two curl steps hold the secrets, the mask comes first, no output or environment carries the token, the one package from the lockfile; they replace `test_secrets_only_in_the_wrangler_step` and `test_wrangler_comes_from_the_lockfile_without_install_scripts`, whose requirements this change removes
 
 ## 2. Code
 
