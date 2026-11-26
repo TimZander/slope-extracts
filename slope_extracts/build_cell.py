@@ -2,7 +2,9 @@
 
     python -m slope_extracts.build_cell <cell-id> --out <dir> [--dem <GeoTIFF> ...]
 
-Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json. With --dem, the given
+Writes <dir>/<cell>/{t0-3m,t0-2m,t1-4}.json.gz and <dir>/<cell>/entry.json. A t0-2m layer over the
+deploy job's limits is left out (no file; its entry is LEFT_OUT); any other layer over them fails the cell,
+and a failed cell leaves no folder. With --dem, the given
 files are the only elevation source (tests and local runs); without it the cell reads USGS 3DEP
 lidar found through the TNM Access API, and the ~10 m DEM where lidar has a gap.
 
@@ -10,18 +12,25 @@ A cell is built from its id alone, with no region, so the same entry point can b
 on demand later.
 """
 import argparse
+import copy
 import datetime
 import json
 import os
+import shutil
 import sys
 import time
 
 from rasterio import Affine
 from rasterio.warp import transform_bounds
 
-from . import cellfile, classes, dem, grid, recipe, sources
+from . import cellfile, classes, dem, grid, publish, recipe, sources
 
-MAX_FILE_BYTES = 20 * 1024 * 1024
+# The deploy job's limits per layer file: gzip bytes, and JSON bytes unpacked.
+MAX_FILE_BYTES = publish.MAX_FILE_BYTES
+MAX_JSON_BYTES = publish.MAX_CELL_JSON
+# The only layer that may be left out, and its entry when it is: no file, nothing counted.
+OPTIONAL_LAYER = 't0-2m'
+LEFT_OUT = {'bytes': 0, 'tiers': {'0': {'polygons': 0, 'points': 0}}}
 
 
 def _layer_bands(z, transform, crs, cell_id, p):
@@ -74,11 +83,34 @@ def build(cell_id, out_dir, dem_paths=None, log=print, today=None):
     }
     cell_dir = os.path.join(out_dir, cell_id)
     os.makedirs(cell_dir, exist_ok=True)
+    try:
+        entry = _write(cell_id, cell_dir, docs, fractions, projects, today, log)
+    except BaseException:
+        # a failed cell leaves no folder, so the deploy job keeps its previous files
+        shutil.rmtree(cell_dir, ignore_errors=True)
+        raise
+    log(f'{cell_id}: done in {time.monotonic() - t_start:.0f} s; ' +
+        ', '.join(f'{n} {l["bytes"] / 1e6:.2f} MB' for n, l in entry['layers'].items()))
+    return entry
+
+
+def _write(cell_id, cell_dir, docs, fractions, projects, today, log):
     layers = {}
     for name, doc in docs.items():
-        data = cellfile.dumps(doc)
+        raw = cellfile.json_bytes(doc)
+        data = cellfile.compress(raw)
+        over = []
         if len(data) > MAX_FILE_BYTES:
-            raise RuntimeError(f'{cell_id}/{name} is {len(data)} bytes, over the {MAX_FILE_BYTES}-byte limit per file')
+            over.append(f'{len(data)} bytes, over the {MAX_FILE_BYTES}-byte limit per file')
+        if len(raw) > MAX_JSON_BYTES:
+            over.append(f'{len(raw)} bytes of JSON, over the {MAX_JSON_BYTES}-byte limit unpacked')
+        if over:
+            if name != OPTIONAL_LAYER:
+                raise RuntimeError(f'{cell_id}/{name} is ' + ' and '.join(over))
+            log(f'::warning::cell {cell_id}: layer {name} left out: it is {" and ".join(over)}; '
+                f'the cell is published without it')
+            layers[name] = copy.deepcopy(LEFT_OUT)
+            continue
         with open(os.path.join(cell_dir, f'{name}.json.gz'), 'wb') as fh:
             fh.write(data)
         layers[name] = {'bytes': len(data), 'tiers': cellfile.stats(doc)}
@@ -93,8 +125,6 @@ def build(cell_id, out_dir, dem_paths=None, log=print, today=None):
     with open(os.path.join(cell_dir, 'entry.json'), 'w') as fh:
         json.dump(entry, fh, indent=1)
         fh.write('\n')
-    log(f'{cell_id}: done in {time.monotonic() - t_start:.0f} s; ' +
-        ', '.join(f'{n} {l["bytes"] / 1e6:.2f} MB' for n, l in layers.items()))
     return entry
 
 

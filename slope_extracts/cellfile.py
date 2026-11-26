@@ -53,9 +53,18 @@ def build(cell_id, layer, tiers):
     }
 
 
-def dumps(doc):
+def json_bytes(doc):
+    """The document's JSON, as a file holds it unpacked."""
+    return json.dumps(doc, separators=(',', ':')).encode()
+
+
+def compress(raw):
     # mtime=0: the same cell builds to the same bytes, so an unchanged cell changes nothing on publish.
-    return gzip.compress(json.dumps(doc, separators=(',', ':')).encode(), compresslevel=9, mtime=0)
+    return gzip.compress(raw, compresslevel=9, mtime=0)
+
+
+def dumps(doc):
+    return compress(json_bytes(doc))
 
 
 def loads(data):

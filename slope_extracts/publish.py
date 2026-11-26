@@ -89,7 +89,7 @@ def fetch_previous(manifest, dest, skip, site_url=SITE_URL, get=http_get, worker
         for c, e in r['cells'].items():
             if (r['id'], c) in skip:
                 continue
-            for l in site.LAYERS:
+            for l in site.present_layers(e):  # a left-out layer has no file to read back
                 jobs.append((site.layer_path(r['id'], c, l), c, l, e['layers'][l]['bytes']))
 
     def one(job):
@@ -171,23 +171,29 @@ def read_artifacts(artifacts_dir, regions, plan_jobs):
                 continue  # the cell failed; its previous files stay
             if os.path.islink(cdir) or not os.path.isdir(cdir):
                 raise RuntimeError(f'{label}: {cell} is not a folder')
-            want = {'entry.json', *(f'{l}.json.gz' for l in site.LAYERS)}
+            # entry.json first: it says which layers have a file (a left-out t0-2m has none)
+            ep = os.path.join(cdir, 'entry.json')
+            if not os.path.lexists(ep) or not _regular(ep):
+                raise RuntimeError(f'{label}: {cell}/entry.json is not a regular file')
+            if os.path.getsize(ep) > MAX_FILE_BYTES:
+                raise RuntimeError(f'{label}: {cell}/entry.json is over the {MAX_FILE_BYTES}-byte limit')
+            try:
+                with open(ep) as fh:
+                    entry = site.validate_entry(json.load(fh), cell)
+            except (ValueError, json.JSONDecodeError) as e:
+                raise RuntimeError(f'{label}: {cell}/entry.json is not valid: {e!r}')
+            present = site.present_layers(entry)
+            want = {'entry.json', *(f'{l}.json.gz' for l in present)}
             have = set(os.listdir(cdir))
             if have != want:
                 raise RuntimeError(f'{label}: {cell} holds {sorted(have)!r}, not exactly {sorted(want)}')
             paths = {}
-            for f in want:
-                p = os.path.join(cdir, f)
-                if not _regular(p):
-                    raise RuntimeError(f'{label}: {cell}/{f} is not a regular file')
-                if os.path.getsize(p) > MAX_FILE_BYTES:
-                    raise RuntimeError(f'{label}: {cell}/{f} is over the {MAX_FILE_BYTES}-byte limit')
-            try:
-                entry = site.validate_entry(json.load(open(os.path.join(cdir, 'entry.json'))), cell)
-            except (ValueError, json.JSONDecodeError) as e:
-                raise RuntimeError(f'{label}: {cell}/entry.json is not valid: {e!r}')
-            for l in site.LAYERS:
+            for l in present:
                 p = os.path.join(cdir, f'{l}.json.gz')
+                if not _regular(p):
+                    raise RuntimeError(f'{label}: {cell}/{l}.json.gz is not a regular file')
+                if os.path.getsize(p) > MAX_FILE_BYTES:
+                    raise RuntimeError(f'{label}: {cell}/{l}.json.gz is over the {MAX_FILE_BYTES}-byte limit')
                 check_cell_file(p, cell, l)
                 if entry['layers'][l]['bytes'] != os.path.getsize(p):
                     raise RuntimeError(f'{label}: {cell}/{l} size differs from its entry')
