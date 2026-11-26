@@ -90,3 +90,11 @@ Canada 2.0.
   refused); ids of 1 to 100 characters, one rule for the build and the entry check; the mosaic's cover
   of every edge cell measured; tests for an empty answer and a refused id. Paging is followed. Stopped
   here: the round found no blocker.
+- Real cells built here from NRCan's live catalogue and mosaic (2026-11-26), each passing the deploy
+  job's checks: `230_-522` (Stikine), no project, built empty in 1 s with nothing read; `200_-492`
+  (Whistler), 7.5% lidar from 3 projects, 108 s, 0.9 MB of files; `203_-468` (Bugaboos), 54.7% lidar
+  from `BC-BC_East_Kootenay_UTM11_2015-1m`, 624 s, 18 MB of files, whole.
+- Security review (2026-11-26): no finding. The build job holds no secret and reads only DTM URLs of
+  the exact mosaic form (another host, the `-dsm.tif` and a `../` path are refused, each tested); the
+  catalogue's next links must stay on its host, at most 20 pages, answers capped at 8 MB; only plain
+  project ids are kept; the deploy job checks every cell file as before; the workflow is unchanged.
