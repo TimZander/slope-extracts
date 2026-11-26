@@ -24,7 +24,8 @@ four 0.125° quarter cells, as osm-extracts does for its dense cells.
 - The stop-gap becomes the fallback: a quarter whose `t0-2m` is still over a limit is left out of that
   quarter with the same marker. A quarter's `t0-3m` or `t1-4` over a limit fails the cell.
 - A whole cell the live manifest lists with its `t0-2m` left out is planned again, so the stop-gap's
-  cells are rebuilt as quarters.
+  cells are rebuilt as quarters. A split cell rebuilt (new recipe, yearly refresh) that now fits whole
+  moves back to `cells`.
 - The deploy job checks quarter files and entries as strictly as whole cells, reads quartered cells
   back from the live site, and writes the overview with quartered cells' tier 4.
 - No limit changes, no recipe bump: a cell under the limits builds to the same bytes as before.

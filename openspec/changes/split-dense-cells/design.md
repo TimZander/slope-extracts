@@ -59,7 +59,17 @@ recipe or any whole cell's bytes; changing the build workflow file.
     manifest: the build job no longer writes one, but the deploy job's checks don't change for whole
     cells, and the live manifest holds two such cells until they are rebuilt. A whole cell's marker
     can't get an oversize file published.
-11. **The overview reads a split cell's four `t1-4` quarters** in place of its one `t1-4` file, ordered
+11. **Clipping runs in the build job only.** The quarter cut uses shapely, which only the build job
+    installs; the code the plan and deploy jobs run (`site.py`, `publish.py`, `grid.py`, `recipe.py`,
+    `cellfile.py`, `overview.py`) stays standard library only, so the deploy job, which holds the
+    write token, imports no third-party code.
+12. **The cost of a split.** Each layer is encoded and gzipped whole first, to judge the limits, and
+    those bytes are dropped once the cell is found to split; nothing whole-cell reaches the disk. Only
+    the polygons whose bounding box crosses a quarter line are clipped; the rest are sorted into their
+    quarter by their box. A split adds one more encode and gzip of the same polygons, in four parts:
+    for a `t0-2m` of 100 MB of JSON, roughly a minute, against a cell's 15 to 17 minutes (run
+    45748636703), and memory for one layer's polygons twice at most, well within a runner's.
+13. **The overview reads a split cell's four `t1-4` quarters** in place of its one `t1-4` file, ordered
     qrow then qcol, south-west first, as cells are ordered.
 
 ## Open Questions
@@ -113,3 +123,7 @@ whole with `t0-2m` left out.
   questions, the reader's follow-up), 6 consider (ADR tasks, polygon order, a quarter object's keys,
   the read-back scenario's premise, quartered back to whole: all taken; renaming "An oversize 2 m layer
   is left out of its cell", which now applies to quarters, not taken: a REMOVED plus ADDED for a name).
+- Spec review, round 2 (2026-11-26): 0 blockers, 6 should-fix (clipping kept out of the deploy job's
+  code, a linked quarter folder, exact entry forms in the live manifest, the split's cost, the licence
+  and file-count scenarios), 3 consider (the proposal now names "fits whole again"; the whole-cell
+  marker scenario and the repeated 24 MB input left as they are). No round 3: no blocker.

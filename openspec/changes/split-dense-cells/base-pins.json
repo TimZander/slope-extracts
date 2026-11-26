@@ -14,7 +14,9 @@
       "Files read back from the live site are checked": "196ef9a91c97171c166d2b1d9ef70a296d90ee7b576e40ade74640d953e29dc9",
       "The site sets its CORS and cache headers": "904d660cfe55499d0a33e88165458f91bf1b3e3928ac03288d363c4ab63694b5",
       "Each region has an overview of its built cells' tier 4": "398efe6f0511f3feed6bc52f7ad31be1ceeffcef6c2ffa19cd05af7130b150b6",
-      "An oversize 2 m layer is left out of its cell": "2d001c074a992c297caa117bfb153205f84e0254dba36fc16b8901e2d899c39e"
+      "An oversize 2 m layer is left out of its cell": "2d001c074a992c297caa117bfb153205f84e0254dba36fc16b8901e2d899c39e",
+      "The site holds at most 19,000 files": "d8197a04bb21f636d4351d869fd9022164544e3194285b4d409914fd0a9958c4",
+      "The site carries its sources notice": "8101fd4052e52b99903a824665a1404a5e7f03aa543c34d90680fd942ad16551"
     }
   }
 }

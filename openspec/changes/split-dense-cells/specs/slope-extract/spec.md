@@ -63,7 +63,8 @@ SHALL hold the parent cell's id. A whole cell's file SHALL have no `quarter` key
 
 Each region SHALL have `quartered` (possibly empty) beside `cells`, mapping each split cell to its
 `recipe`, `built`, `sources`, `projects` and `quarters`: exactly its four quarters, each with exactly
-`layers`, counted and checked as a whole cell's are, the left-out marker's rules included. A cell SHALL be in at most one of `cells` and `quartered`. The manifest
+`layers`, counted and checked as a whole cell's are, the left-out marker's rules included. A
+`quartered` entry SHALL have no `layers`, and a `cells` entry no `quarters`. A cell SHALL be in at most one of `cells` and `quartered`. The manifest
 SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered cell as not yet built.
 
 #### Scenario: A region with one split cell
@@ -88,6 +89,11 @@ SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered ce
 - **WHEN** a build job's entry for a split cell lists three quarters
 - **THEN** the deploy job fails and nothing is deployed
 
+#### Scenario: A live entry with both forms
+
+- **WHEN** the live manifest's `quartered` entry for a cell also has `layers`
+- **THEN** the plan job fails with "the live manifest is not valid" and nothing is built
+
 #### Scenario: The marker on a quarter's zoomed-out layer
 
 - **WHEN** the live manifest gives a quarter's `t1-4` `bytes` 0
@@ -101,8 +107,8 @@ SHALL keep `version` 1, so a reader that knows only `cells` reads a quartered ce
 ### Requirement: The deploy job accepts only well-formed split cells
 
 A split cell's `entry.json` SHALL have `quarters` and no `layers`, a whole cell's `layers` and no
-`quarters`. A split cell's folder SHALL hold exactly `entry.json` and its four quarter folders, each
-holding exactly the layers its quarter doesn't mark left out. Each quarter file SHALL pass a whole
+`quarters`. A split cell's folder SHALL hold exactly `entry.json` and its four quarter folders, real
+folders, not links, each holding exactly the layers its quarter doesn't mark left out. Each quarter file SHALL pass a whole
 cell's checks against its quarter's id and bounds, to the same tolerance, and be the size its entry
 gives. The deploy job SHALL fail, publishing nothing, otherwise.
 
@@ -114,6 +120,11 @@ gives. The deploy job SHALL fail, publishing nothing, otherwise.
 #### Scenario: A whole-cell file beside the quarters
 
 - **WHEN** a split cell's folder also holds a `t1-4.json.gz` of the whole cell
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: A quarter folder that is a link
+
+- **WHEN** a split cell's quarter folder `316_-850` is a symbolic link to a folder of valid files
 - **THEN** the deploy job fails and nothing is deployed
 
 #### Scenario: An entry with both forms
@@ -369,3 +380,32 @@ limits are those the deploy job checks; this rule changes none of them.
 
 - **WHEN** a split cell's quarter would have a `t1-4` file of 15 MB unpacking to 70 MB of JSON
 - **THEN** the cell fails, the build job leaves it out of the artifact, and the job ends red
+
+### Requirement: The site holds at most 19,000 files
+
+The deploy job SHALL fail before pushing when the site would hold more than 19,000 files.
+
+#### Scenario: Too many files
+
+- **WHEN** the manifest would name 19,001 files
+- **THEN** the deploy job fails and nothing is deployed
+
+#### Scenario: Counting a split cell's files
+
+- **WHEN** a region has one whole cell and one split cell with one quarter's `t0-2m` left out
+- **THEN** the site's file count includes 3 files for the whole cell and 11 for the split one
+
+### Requirement: The site carries its sources notice
+
+`LICENSE.txt` SHALL name USGS 3DEP as the source, state it is public domain, list every lidar project the
+built cells used, and link this repository.
+
+#### Scenario: The pilot's notice
+
+- **WHEN** the Dillon cell is built from three lidar projects
+- **THEN** `LICENSE.txt` lists those three projects
+
+#### Scenario: A split cell's projects
+
+- **WHEN** the only built cell is split and was built from two lidar projects
+- **THEN** `LICENSE.txt` lists those two projects
