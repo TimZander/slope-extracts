@@ -54,12 +54,11 @@ cell file's form or the recipe.
 
 ## Open Questions
 
-1. **The manifest's and tile files' names and keys.** Partly answered (owner, 2026-11-26, from the
-   app's side; ADR 0032): a tile's entry carries `coveredMask` and `builtMask`, so the app plans by cell
-   from the manifest alone; the index's size is `indexBytes`; `covered` and `built` count a split cell
-   once; `areas` keep `areas.json`'s order, which the app uses to name them, and their boxes are only
-   descriptive. Still assumed: `slope-extract` version 2, `slope-tile` version 1 tile indexes with
-   today's entries, `slope-overview` version 2 tile overviews.
+1. **The manifest's and tile files' names and keys.** Answered (owner, 2026-11-26, confirmed from the
+   app's side; ADRs 0032 and 0033): `manifest.json` `slope-extract` version 2 with tile entries of
+   `covered`, `built`, `coveredMask`, `builtMask`, `indexBytes` and `overview`, and areas in
+   `areas.json`'s order; `slope-tile` version 1 tile indexes with today's entries; `slope-overview`
+   version 2 tile overviews.
 2. **Order of building.** Assumption: areas in list order (the order the manifest lists them in), each area's cells in row then column order,
    a shared cell when its first area reaches it.
 3. **A region's `only` list.** Assumption: dropped; unused since ADR 0010, and a small box does the same.
