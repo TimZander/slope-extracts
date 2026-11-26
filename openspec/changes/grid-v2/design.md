@@ -115,3 +115,9 @@ switch; so the reader's version 2 must be proven before this merges.
   version 1 paths (now a test of the whole list, and the Node fixture on grid paths); 2 soft fails, a
   scenario behind its rule (every tile index is read) and the deploy's guard counting cells where
   open question 4 meant refusing any left-out cell (now refused by name, even when more are built).
+- Dry run of the first run against the live site (2026-11-26, read-only, nothing deployed): the plan
+  read the version 1 manifest in under a second and planned 48 cells; the assemble step, with nothing
+  built, took 52 s and moved all 386 cells (6 split) by hash, re-reading only their 295 `t1-4` files;
+  113 version 1 files with no polygon became empty layers; no entry changed otherwise; 12 tiles, all
+  with an overview; 1,126 files, none under `colorado/`; the hash step checked the live manifest and
+  every re-read file against the live `hashes.json`.
