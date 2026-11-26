@@ -810,7 +810,7 @@ def test_a_left_out_live_split_cell_fails_too(live, tmp_path):
     one_box = {'south': 39.51, 'west': -106.24, 'north': 39.74, 'east': -106.01}
     artifact(tmp_path, 0, [DILLON])  # 1 cell in the new site, 2 in the live one
     with pytest.raises(RuntimeError, match='leave out 1 built cells'):
-        sf.run(tmp_path, live, name='site2', areas=[{'id': 'dillon', 'name': 'Dillon', 'boxes': [one_box]}])
+        sf.run(tmp_path, live, name='site2', areas=[{'id': 'dillon', 'name': 'Dillon', 'source': '3dep', 'boxes': [one_box]}])
 
 
 # Requirement: The deploy job accepts only well-formed split cells (attack tests)

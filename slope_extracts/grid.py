@@ -41,11 +41,11 @@ def cells_in_bounds(south, west, north, east):
 
 
 def utm_epsg(cell_id):
-    """NAD83 / UTM zone of the cell's centre (EPSG:269xx), valid for the conterminous US."""
+    """NAD83 / UTM zone of the cell's centre (EPSG:269xx): zones 7 to 19, the conterminous US and BC."""
     south, west, north, east = cell_bounds(cell_id)
     zone = math.floor(((west + east) / 2 + 180) / 6) + 1
-    if not 10 <= zone <= 19:
-        raise ValueError(f'cell {cell_id} is in UTM zone {zone}, outside the NAD83 zones 10-19 this pipeline knows')
+    if not 7 <= zone <= 19:
+        raise ValueError(f'cell {cell_id} is in UTM zone {zone}, outside the NAD83 zones 7-19 this pipeline knows')
     return f'EPSG:269{zone:02d}'
 
 

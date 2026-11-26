@@ -1,15 +1,19 @@
 # slope-extracts
 
 Slope-angle shading cells for [garmin-map](https://maps.timzander.com)'s slope layer, computed from the
-USGS 3D Elevation Program (3DEP) and published as a static site at <https://slope.timzander.com>.
+USGS 3D Elevation Program (3DEP) in the United States and Natural Resources Canada's HRDEM lidar in
+Canada, and published as a static site at <https://slope.timzander.com>.
 
 - **What it builds:** `openspec/specs/slope-extract` (the spec), `docs/decisions/` (why).
 - **How:** `.github/workflows/build.yml` runs every 15 minutes, one run at a time, so runs follow one
   another (and by hand). It reads the live site past its CDN cache, and builds the covered cells
   the site lacks or built with an older recipe, at most 48 per run, three per job:
-  - `areas.json` lists named areas, each one or more boxes; the coverage is every 0.25° cell a box
+  - `areas.json` lists named areas (Colorado, British Columbia), each with its elevation `source`
+    (`3dep` or `hrdem`) and one or more boxes; the coverage is every 0.25° cell a box
     overlaps, each cell built and stored once however many areas cover it.
-  - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic.
+  - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic, or, in
+    an `hrdem` area, NRCan's HRDEM 1 m mosaic only, found through NRCan's STAC catalogue: where there
+    is no lidar there is no data, and a cell no lidar project meets is built empty without a read.
   - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py`, and writes up to
     three gzip JSON files per cell at `cells/<cell>/<layer>.json.gz`; a layer with no polygon gets no
     file (its entry: `bytes` 0, `tiers` `{}`). A cell with a file too large to publish (over 20 MiB of

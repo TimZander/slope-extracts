@@ -35,14 +35,14 @@ def test_colorados_coverage():
 
 
 def test_an_area_of_two_boxes_covers_each_cell_once():
-    a = {'id': 'two', 'name': 'Two', 'boxes': [box((0, 4), (0, 7)), box((4, 8), (2, 7))]}
+    a = {'id': 'two', 'name': 'Two', 'source': '3dep', 'boxes': [box((0, 4), (0, 7)), box((4, 8), (2, 7))]}
     cov = site.area_coverage(a)
     assert len(cov) == 64 and len(set(cov)) == 64
     assert cov == sorted(cov, key=grid.compare_key)
 
 
 def test_an_edge_on_a_cell_line_covers_no_cell_beyond():
-    a = {'id': 'edge', 'name': 'Edge', 'boxes': [{'south': 0.0, 'west': 0.0, 'north': 1.0, 'east': 0.5}]}
+    a = {'id': 'edge', 'name': 'Edge', 'source': '3dep', 'boxes': [{'south': 0.0, 'west': 0.0, 'north': 1.0, 'east': 0.5}]}
     assert site.area_coverage(a) == [f'{r}_{c}' for r in range(4) for c in range(2)]
 
 
@@ -64,7 +64,7 @@ def test_the_repositorys_areas_list_is_valid():
 
 # Requirement: A cell is built and stored once, whatever covers it
 def test_a_border_cell_is_planned_once():
-    utah = {'id': 'utah', 'name': 'Utah', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
+    utah = {'id': 'utah', 'name': 'Utah', 'source': '3dep', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
     cov = site.site_coverage([COLORADO, utah])
     assert cov.count('152_-437') == 1
     jobs = site.plan([COLORADO, utah], None, 1, 10_000, 3, today=TODAY)
@@ -75,7 +75,7 @@ def test_a_border_cell_is_planned_once():
 
 
 def test_a_border_cell_is_stored_once(live, tmp_path):
-    utah = {'id': 'utah', 'name': 'Utah', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
+    utah = {'id': 'utah', 'name': 'Utah', 'source': '3dep', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
     artifact(tmp_path, ['152_-437'])
     _c, out = run(tmp_path, live, areas=[COLORADO, utah])
     files = deployed(out)
@@ -152,7 +152,7 @@ def test_colorados_manifest(live, tmp_path):
 
 
 def test_areas_in_their_lists_order(live, tmp_path):
-    utah = {'id': 'utah', 'name': 'Utah', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
+    utah = {'id': 'utah', 'name': 'Utah', 'source': '3dep', 'boxes': [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]}
     artifact(tmp_path, [DILLON])
     _c, out = run(tmp_path, live, areas=[COLORADO, utah])
     assert [a['id'] for a in json.loads((out / 'manifest.json').read_text())['areas']] == ['colorado', 'utah']
@@ -358,7 +358,7 @@ def live_with(cells):
 
 
 def only(cells):
-    return [{'id': 'x', 'name': 'X', 'boxes': [box((grid.parse_cell(c)[0],) * 2, (grid.parse_cell(c)[1],) * 2) for c in cells]}]
+    return [{'id': 'x', 'name': 'X', 'source': '3dep', 'boxes': [box((grid.parse_cell(c)[0],) * 2, (grid.parse_cell(c)[1],) * 2) for c in cells]}]
 
 
 def test_plan_builds_missing_and_stale_cells_only():
@@ -680,7 +680,7 @@ def test_a_deployed_sites_hashes_list_exactly_its_files(live, tmp_path):
     from test_site_publish import NODE_MODULES
     if not NODE_MODULES.exists():
         pytest.skip('run npm ci --ignore-scripts in deploy/ first')
-    one = [{'id': 'dillon', 'name': 'Dillon', 'boxes': [box((158, 158), (-425, -425))]}]
+    one = [{'id': 'dillon', 'name': 'Dillon', 'source': '3dep', 'boxes': [box((158, 158), (-425, -425))]}]
     artifact(tmp_path, [DILLON])
     _c, out = run(tmp_path, live, areas=one)
     script = pathlib.Path(__file__).resolve().parent.parent / 'deploy' / 'pages.mjs'
