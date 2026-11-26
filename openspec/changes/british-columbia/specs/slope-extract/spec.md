@@ -6,7 +6,7 @@ A cell of an `hrdem` area SHALL read the HRDEM 1 m mosaic's DTM tiles that NRCan
 for its buffered frame, as a 2 m mosaic, and no other elevation: a pixel no lidar covers SHALL have none.
 Only URLs `https://canelevation-dem.s3.ca-central-1.amazonaws.com/hrdem-mosaic-1m/<i>_<j>-mosaic-1m-dtm.tif`
 SHALL be read. The entry SHALL record `dem10m` 0 and, as `projects`, the lidar projects of every page of
-the catalogue's answer that meet the frame, ids of 1 to 100 letters, digits, `_` and `-`.
+the catalogue's answer that meet the frame and have a valid id.
 
 #### Scenario: A cell partly covered by lidar
 
