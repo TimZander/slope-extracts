@@ -41,6 +41,8 @@ an older waiting one, and a running one is never cancelled.
 
 - [A waiting run is replaced by a newer one] → GitHub lists it as cancelled; it never ran, so nothing is
   lost, and a cancelled run sends no failure notice.
+- [A run started by hand while one runs] → it waits like a scheduled one, and the next scheduled run
+  replaces it within 15 minutes; the workflow takes no inputs, so the run that starts does the same work.
 - [More deploys] → each run that built cells deploys once, as now; Cloudflare's Direct Upload sets no
   deployment limit that this pace reaches.
 
@@ -54,3 +56,8 @@ an older waiting one, and a running one is never cancelled.
   appended after a path built from checked ids, so it can't change which file is read or where its
   bytes go; the size and hash checks are unchanged. Attack check: a real read of a path the edge still
   cached (an old version 1 cell) answered 404 with the query string, the live deployment's answer.
+- Conformance review, round 1 (2026-11-26): no hard fail; every guard broken on purpose was caught. 3
+  soft fails: the schedule test no longer requires the off-quarter minutes (decision 2, not the rule);
+  a run started by hand is noted under the risks; a fake CDN driving the plan end to end was not added
+  (the plan's reads go through `http_get`, which a test checks, and a real read past the edge cache was
+  seen to answer from the live deployment).
