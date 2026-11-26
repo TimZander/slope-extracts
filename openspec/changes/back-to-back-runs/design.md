@@ -19,9 +19,23 @@ an older waiting one, and a running one is never cancelled.
    minute, and this public repository's Actions minutes are free; a slower schedule once the backfill is
    done is a later change if it is ever wanted.
 
+4. **Reads past the CDN's cache.** The site's own cache rules let Cloudflare's edge keep
+   `manifest.json`, `hashes.json` and tile indexes for 5 minutes and cell files for a day (seen: an old
+   path answered from the edge cache with `cf-cache-status: HIT` after its deployment had none, and the
+   same path with a query string answered 404, `BYPASS`). Runs 3 hours apart rarely met that window;
+   back-to-back runs read the site seconds after a deploy. A stale manifest would make the plan rebuild
+   the cells just built, and a stale `hashes.json` or re-read cell would fail the deploy's hash checks.
+   Every pipeline read therefore carries a query string of its own; the app's reads are untouched.
+
 ## Open questions
 
-None: the owner asked for back-to-back runs.
+1. **The schedule after the backfill.** ADR 0006 planned a June-only schedule once the backfill is
+   done; it was never set (the cron has stayed every 3 hours). Assumption: every 15 minutes all year,
+   so the yearly refresh happens as each cell turns 300 days old rather than in June. A slower
+   schedule is a later change if the owner wants one.
+2. **A cell that always fails.** It stays missing, so every run plans it again (ADR 0013): with runs
+   back to back, a red run and a failure notice about every hour until it is fixed. Assumption:
+   accepted, as faster notice; `BUILD_ENABLED=false` pauses the runs.
 
 ## Risks / Trade-offs
 

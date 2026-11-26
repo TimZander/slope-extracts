@@ -11,11 +11,15 @@ pipeline running, starting the next run as soon as one finishes, rather than eve
 - The build workflow is scheduled every 15 minutes. Its runs stay one at a time (`concurrency:
   slope-extract`, never cancelling a running one), so a run scheduled while another runs waits and
   starts when it ends; a run with nothing to build still ends after the plan job.
-- The README, the workflow's comments and ADR 0006 say so; ADR 0035 records the decision.
+- Every read of the live site by the plan and deploy jobs carries a query string of its own, so the
+  CDN's cache (5 minutes for the manifest, a day for cell files) never answers it.
+- The README and the workflow's comments say so; ADR 0035 records the decision and marks ADR 0006's
+  schedule superseded.
 
 ## Impact
 
-- `.github/workflows/build.yml` (`on.schedule`, comments), `tests/test_workflow.py`, `README.md`,
+- `.github/workflows/build.yml` (`on.schedule`, comments), `slope_extracts/publish.py` and
+  `deploy/pages.mjs` (live reads), their tests, `README.md`,
   `docs/decisions/`.
 - No change to what a run builds, to the site or to the manifest. Public repository: the extra
   plan-only runs cost no billed minutes.
