@@ -381,3 +381,23 @@ def test_a_quarter_with_no_steep_ground_is_written_with_its_classes_empty(tmp_pa
         assert set(doc['tiers']) == {str(t) for t in tiers[layer]}
         assert all(polys == [] for c in doc['tiers'].values() for polys in c.values())
         assert {t: set(c) for t, c in doc['tiers'].items()} == {str(t): {str(b) for b in c} for t, c in tiers[layer].items()}
+
+
+# Requirement: A layer with no polygons has no file ("A flat cell")
+def test_build_a_flat_cell_writes_no_layer_file(mini_cell, tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_bounds
+    from conftest import CRS, MINI
+    s, w, n, e = MINI
+    left, bottom, right, top = transform_bounds('EPSG:4326', CRS, w, s, e, n, densify_pts=21)
+    left, bottom, right, top = left - 400, bottom - 400, right + 400, top + 400
+    width, height = int(right - left), int(top - bottom)
+    path = tmp_path / 'flat.tif'
+    with rasterio.open(path, 'w', driver='GTiff', width=width, height=height, count=1, dtype='float32', crs=CRS,
+                       transform=from_origin(left, top, 1.0, 1.0), nodata=np.nan) as dst:
+        dst.write(np.full((height, width), 1500.0, dtype='float32'), 1)
+    entry = build_cell.build(mini_cell, str(tmp_path / 'out'), [str(path)], log=lambda *_: None)
+    assert entry['layers'] == {l: {'bytes': 0, 'tiers': {}} for l in ('t0-3m', 't0-2m', 't1-4')}
+    assert sorted(p.name for p in (tmp_path / 'out' / mini_cell).iterdir()) == ['entry.json']

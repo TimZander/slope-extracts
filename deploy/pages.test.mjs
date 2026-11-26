@@ -33,7 +33,7 @@ function write (file, data) {
 }
 
 /** A site folder of this run's files and a state folder as the assemble step writes them. */
-function fixture ({ kept = {}, checks = { manifest: null, readback: {} }, liveManifest = null } = {}) {
+function fixture ({ kept = {}, checks = { readback: {}, live: [] }, liveFiles = {} } = {}) {
   const root = tmp()
   const site = path.join(root, '_site')
   const state = path.join(root, '_deploy')
@@ -44,7 +44,7 @@ function fixture ({ kept = {}, checks = { manifest: null, readback: {} }, liveMa
   write(path.join(state, 'kept.json'), JSON.stringify(kept))
   write(path.join(state, 'checks.json'), JSON.stringify(checks))
   write(path.join(state, '_headers'), '/*\n  X-Content-Type-Options: nosniff\n')
-  if (liveManifest !== null) write(path.join(state, 'live-manifest.json'), liveManifest)
+  for (const [name, data] of Object.entries(liveFiles)) write(path.join(state, 'live', name), data)
   return { root, site, state }
 }
 
@@ -96,21 +96,30 @@ test('the same site hashes to the same files', () => {
   assert.deepEqual(fs.readFileSync(path.join(a.site, 'hashes.json')), fs.readFileSync(path.join(b.site, 'hashes.json')))
 })
 
-// Requirement: The live hashes belong to the live manifest ("Hashes from another deployment")
-test('hash fails when the live hashes were written with another manifest', () => {
-  const live = '{"live":1}\n'
-  const ok = fixture({ liveManifest: live, checks: { manifest: pagesHash(Buffer.from(live), 'manifest.json'), readback: {} } })
+// Requirement: The live hashes belong to the live manifest ("Hashes from another deployment",
+// "A tile index from another deployment")
+test('hash fails when a live manifest or tile index read isn\'t the one hashes.json lists', () => {
+  const m = '{"live":1}\n'
+  const t = '{"tile":1}\n'
+  const live = [{ file: 'live/manifest.json', name: 'manifest.json', hash: pagesHash(Buffer.from(m), 'manifest.json') },
+    { file: 'live/tiles/19_-54/index.json', name: 'tiles/19_-54/index.json', hash: pagesHash(Buffer.from(t), 'index.json') }]
+  const liveFiles = { 'manifest.json': m, 'tiles/19_-54/index.json': t }
+  const ok = fixture({ liveFiles, checks: { readback: {}, live } })
   runHash({ site: ok.site, state: ok.state })
-  const bad = fixture({ liveManifest: live, checks: { manifest: 'b'.repeat(32), readback: {} } })
-  assert.throws(() => runHash({ site: bad.site, state: bad.state }), /another deployment/)
+  const badManifest = fixture({ liveFiles, checks: { readback: {}, live: [{ ...live[0], hash: 'b'.repeat(32) }, live[1]] } })
+  assert.throws(() => runHash({ site: badManifest.site, state: badManifest.state }), /another deployment/)
+  const badTile = fixture({ liveFiles, checks: { readback: {}, live: [live[0], { ...live[1], hash: 'b'.repeat(32) }] } })
+  assert.throws(() => runHash({ site: badTile.site, state: badTile.state }), /tiles\/19_-54\/index.json/)
+  const escape = fixture({ liveFiles, checks: { readback: {}, live: [{ ...live[0], file: '../kept.json' }] } })
+  assert.throws(() => runHash({ site: escape.site, state: escape.state }), /live file/)
 })
 
 // Requirement: The live hashes belong to the live manifest ("A `t1-4` file that doesn't match its hash")
 test('hash fails when a read-back file hashes to another value than listed', () => {
   const t14 = '/colorado/158_-425/t1-4.json.gz'
-  const bad = fixture({ checks: { manifest: null, readback: { [t14]: 'c'.repeat(32) } } })
+  const bad = fixture({ checks: { readback: { [t14]: 'c'.repeat(32) }, live: [] } })
   assert.throws(() => runHash({ site: bad.site, state: bad.state }), /t1-4.json.gz/)
-  const unlisted = fixture({ checks: { manifest: null, readback: { [t14]: null } } })
+  const unlisted = fixture({ checks: { readback: { [t14]: null }, live: [] } })
   runHash({ site: unlisted.site, state: unlisted.state })
 })
 
@@ -382,4 +391,28 @@ test('a kept file re-read shorter than its manifest size fails the upload', asyn
   } finally {
     cf.server.close()
   }
+})
+
+// Requirement: The first run moves the cells onto the grid (a moved file Cloudflare lacks is read back
+// from its version 1 path, the only one the live site serves)
+test('a moved kept file Cloudflare lacks is read back from its old path', async () => {
+  const bytes = cellFile('t0-3m')
+  const h = pagesHash(bytes, 't0-3m.json.gz')
+  const f = fixture({ kept: { '/cells/158_-425/t0-3m.json.gz': { hash: h, bytes: bytes.length, from: '/colorado/158_-425/t0-3m.json.gz' } } })
+  runHash({ site: f.site, state: f.state })
+  const cf = await fakeCloudflare({ missing: [h], live: { '/colorado/158_-425/t0-3m.json.gz': bytes } })
+  try {
+    await runUpload({ site: f.site, state: f.state, jwtFile: jwtFile(f.root), api: cf.api, siteUrl: cf.site, log: () => {} })
+    assert.ok(cf.calls.some(c => c.url === '/site/colorado/158_-425/t0-3m.json.gz'))
+    assert.ok(!cf.calls.some(c => c.url === '/site/cells/158_-425/t0-3m.json.gz'))
+    const sent = cf.calls.filter(c => c.url === '/client/v4/pages/assets/upload').flatMap(c => JSON.parse(c.body))
+    assert.deepEqual(sent.map(s => s.key), [h])
+  } finally {
+    cf.server.close()
+  }
+})
+
+test('a kept file whose old path isn\'t a cell path is refused', () => {
+  const f = fixture({ kept: { '/cells/158_-425/t0-3m.json.gz': { hash: 'a'.repeat(32), bytes: 5, from: '/../etc/passwd' } } })
+  assert.throws(() => runHash({ site: f.site, state: f.state }), /from/)
 })
