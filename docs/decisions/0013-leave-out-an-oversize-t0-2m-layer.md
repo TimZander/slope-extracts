@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0014
 date: 2026-11-25
 decision-makers: the owner (skip the oversize file now, split dense cells later: "I'm OK with 1 and 2"); Claude (the manifest's marker for a left-out layer, and the build job deciding for both limits)
 ---

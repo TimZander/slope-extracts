@@ -18,4 +18,13 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0010](0010-build-all-of-colorado.md) | Build all of Colorado: drop the pilot's `only` list | accepted |
 | [0011](0011-a-region-overview-of-tier-4-written-by-the-deploy-job.md) | A per-region overview of every built cell's tier 4, written by the deploy job | accepted |
 | [0012](0012-update-sdd-to-0-4-4.md) | Update sdd from 0.3.2 to 0.4.4 | accepted |
-| [0013](0013-leave-out-an-oversize-t0-2m-layer.md) | Leave an oversize `t0-2m` layer out of its cell (marked `bytes` 0); split dense cells later (#10); limits not raised | accepted |
+| [0013](0013-leave-out-an-oversize-t0-2m-layer.md) | Leave an oversize `t0-2m` layer out of its cell (marked `bytes` 0); split dense cells later (#10); limits not raised | superseded by 0014 |
+| [0014](0014-split-dense-cells-with-the-skip-as-fallback.md) | A cell too large to publish whole is split into four quarters; leaving out `t0-2m` is the fallback | accepted |
+| [0015](0015-quartered-cells-listed-apart-in-the-manifest.md) | The manifest lists split cells in a region map `quartered`, apart from `cells`; version stays 1 | accepted |
+| [0016](0016-each-quarter-carries-its-own-layers.md) | Each quarter of a split cell carries its own `layers` in the manifest | accepted |
+| [0017](0017-a-quarter-file-names-its-cell-and-quarter.md) | A quarter file keeps `cell` as its parent's id and adds `quarter`; slope-cell stays version 1 | accepted |
+| [0018](0018-a-split-cell-quarters-all-three-layers.md) | A split cell quarters all three layers, not only the oversize one | accepted |
+| [0019](0019-quarters-are-cut-from-the-cells-polygons.md) | A split cell's quarters are cut from its finished polygons, not built from the DEM | accepted |
+| [0020](0020-whole-cells-with-a-layer-left-out-are-rebuilt.md) | The plan rebuilds a whole cell the live manifest lists with a layer left out | accepted |
+| [0021](0021-every-region-has-quartered.md) | Every region has `quartered`, `{}` when it has no split cell | accepted |
+| [0022](0022-a-quarter-holds-exactly-layers.md) | A quarter object in the manifest holds exactly `layers` | accepted |

@@ -44,13 +44,13 @@ recipe or any whole cell's bytes; changing the build workflow file.
 ### Claude's
 
 5. **The split replaces the skip; the skip stays as the fallback** (the owner asked Claude to decide
-   this and say so here). A cell over a limit is quartered rather than losing its `t0-2m`. If a quarter's `t0-2m` is still over a limit, that quarter is
+   this and say so here; ADR 0014). A cell over a limit is quartered rather than losing its `t0-2m`. If a quarter's `t0-2m` is still over a limit, that quarter is
    written without it, with the stop-gap's marker, so one file still can't block the deploy. A
    quarter's `t0-3m` or `t1-4` over a limit fails the cell, as a whole cell's did. Rejected: the split
    alone, failing a cell whose quarter is still too large (a dense enough cell would block its job
    again); splitting again into sixteenths (a second level for a case not yet seen).
 6. **Quarters are cut from the whole cell's polygons** and **7. a whole cell with a layer left out is
-   planned again**: open questions 1 and 2 below; the change proceeds on them.
+   planned again**: open questions 1 and 2 below, since answered by the owner.
 8. **No recipe bump:** no number in `recipe.py` changes, and a cell under the limits builds to the same
    bytes.
 9. **The artifact's `entry.json` of a split cell** has the manifest entry's form plus `cell`, and the
@@ -73,6 +73,8 @@ recipe or any whole cell's bytes; changing the build workflow file.
     qrow then qcol, south-west first, as cells are ordered.
 
 ## Open Questions
+
+All four answered by the owner on 2026-11-26, each as the assumption below (ADRs 0019 to 0022).
 
 1. **Are quarters cut from the whole cell's polygons, or built from the DEM?** Assumption: cut. The
    cell is built once, as now; its polygons, already sieved, simplified and filtered by area, are
@@ -127,3 +129,7 @@ whole with `t0-2m` left out.
   code, a linked quarter folder, exact entry forms in the live manifest, the split's cost, the licence
   and file-count scenarios), 3 consider (the proposal now names "fits whole again"; the whole-cell
   marker scenario and the repeated 24 MB input left as they are). No round 3: no blocker.
+- Conformance review, round 1 (2026-11-26): 0 hard fails, 5 soft fails. Four were test gaps (the gzip
+  limit's boundary, a whole cell's `t0-3m` splitting, an empty quarter's files, a deploy over a manifest
+  without `quartered`), fixed in tests; one was the order of a quartered entry's quarters, which the
+  code required and the spec didn't state, now in the spec.

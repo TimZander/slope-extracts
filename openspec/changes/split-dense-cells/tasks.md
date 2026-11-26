@@ -16,6 +16,6 @@
 
 ## 3. Records
 
-- [ ] 3.1 ADRs: the owner's manifest and file decisions; split replaces the skip with the skip as fallback; and each open question the owner answers (quarters cut from the cell's polygons, replanning whole cells with a layer left out, `quartered` always present, a quarter's keys)
+- [x] 3.1 ADRs: the owner's manifest and file decisions; split replaces the skip with the skip as fallback; and each open question the owner answers (quarters cut from the cell's polygons, replanning whole cells with a layer left out, `quartered` always present, a quarter's keys)
 - [x] 3.2 README: split cells
 - [ ] 3.3 The manifest reader's matching change to read `quartered` and quarter files — not done: it belongs to the reader's own repository and is the owner's to schedule
