@@ -604,3 +604,69 @@ def test_a_tile_index_read_is_retried_after_a_transient_error(tmp_path):
     failures['tiles/19_-54/index.json'] = 3
     with pytest.raises(RuntimeError, match='503'):
         publish.fetch_live(URL, flaky, retry_delay=0)
+
+
+# --- attack tests: what a tampered live site or a bad id could try (task 3.3) ------------------
+# Requirement: The live manifest is checked, with its tile indexes; Areas are hand-drawn boxes
+
+def retile(live, old, new):
+    m = json.loads(live.files['manifest.json'])
+    m['tiles'] = {(new if t == old else t): e for t, e in m['tiles'].items()}
+    for a in m['areas']:
+        a['tiles'] = [new if t == old else t for t in a['tiles']]
+    live.files['manifest.json'] = (json.dumps(m, indent=1) + '\n').encode()
+    live.files[f'tiles/{new}/index.json'] = live.files[f'tiles/{old}/index.json']
+
+
+@pytest.mark.parametrize('bad', ['../../etc', '19_-54/../../x', '19_-54\n', '019_-54', '19_-54 '])
+def test_attack_a_live_tile_id_that_isnt_one_is_refused(tmp_path, bad):
+    live = published(tmp_path)
+    retile(live, '19_-54', bad)
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live)
+    assert not any('..' in r or '\n' in r for r in live.requests)
+
+
+@pytest.mark.parametrize('bad', ['../etc', 'colorado/..', 'colorado\n', 'Colorado'])
+def test_attack_a_live_region_id_that_isnt_one_is_refused(bad):
+    live = v1_site([DILLON])
+    m = json.loads(live.files['manifest.json'])
+    m['regions'][0]['id'] = bad
+    live.files['manifest.json'] = json.dumps(m).encode()
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live)
+
+
+@pytest.mark.parametrize('bad', ['colorado\n', '../x', 'a/b', ''])
+def test_attack_an_area_id_that_isnt_one_is_refused(bad):
+    with pytest.raises(ValueError):
+        site.validate_areas([dict(COLORADO, id=bad)])
+
+
+@pytest.mark.parametrize('bad', ['158_-425\n', '158_-425/..', ' 158_-425', '158_-425 '])
+def test_attack_a_cell_or_tile_id_with_anything_more_is_refused(bad):
+    with pytest.raises(ValueError):
+        grid.parse_cell(bad)
+    with pytest.raises(ValueError):
+        grid.parse_tile(bad)
+
+
+def test_attack_a_live_tile_index_naming_a_cell_outside_its_tile_is_refused(tmp_path):
+    live = published(tmp_path)
+    tamper_tile(live, lambda d, t: d['cells'].update({'../../etc': d['cells'][DILLON]}))
+    with pytest.raises(RuntimeError, match='the live manifest is not valid'):
+        fetch(live)
+
+
+@pytest.mark.parametrize('value', ['3', 'None', '1; rm -rf /', '', None])
+def test_attack_a_plan_manifest_version_that_isnt_one_is_refused(tmp_path, monkeypatch, value):
+    monkeypatch.setenv('PLAN_HAD_MANIFEST', 'false')
+    monkeypatch.setenv('PLAN_JOBS', json.dumps([DILLON]))
+    if value is None:
+        monkeypatch.delenv('PLAN_MANIFEST_VERSION', raising=False)
+    else:
+        monkeypatch.setenv('PLAN_MANIFEST_VERSION', value)
+    artifact(tmp_path, [DILLON])
+    assert publish.main(['assemble', '--artifacts', str(tmp_path / 'artifacts'), '--out', str(tmp_path / 'out'),
+                         '--state', str(tmp_path / 'state')]) == 1
+    assert not (tmp_path / 'out' / 'manifest.json').exists()
