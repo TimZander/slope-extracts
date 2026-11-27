@@ -14,7 +14,8 @@ MINI = (39.600, -106.150, 39.610, -106.1325)
 CELL = '158_-425'
 CRS = 'EPSG:26913'
 # Concentric rings of known slope around a summit: (outer radius m, slope degrees)
-RINGS = [(60, 62.0), (140, 50.0), (230, 42.0), (320, 37.0), (420, 32.0), (10_000, 10.0)]
+RINGS = [(60, 62.0), (130, 53.0), (200, 47.0), (270, 42.0), (340, 37.0), (400, 33.0), (460, 31.0), (520, 28.0),
+         (10_000, 10.0)]
 
 
 def cone(width, height, res, left, top, cx, cy):
