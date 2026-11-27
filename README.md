@@ -15,7 +15,7 @@ Canada, and published as a static site at <https://slope.timzander.com>.
     an `hrdem` area, NRCan's HRDEM 1 m mosaic only, found through NRCan's STAC catalogue: where there
     is no lidar there is no data, and a cell no lidar project meets is built empty without a read.
   - It classifies slope into the bands and zoom tiers in `slope_extracts/recipe.py` (tier 0, the closest
-    zoom: `27`, `30`, `32`, `35`–45°, `45`, `50`–60° and cliffs `60`, since recipe 2), and writes up to
+    zoom: `27`, `30`, `32`, `35`–45°, `45`, `50` (50°+, under the cliffs) and cliffs `60`, since recipe 2), and writes up to
     three gzip JSON files per cell at `cells/<cell>/<layer>.json.gz`; a layer with no polygon gets no
     file (its entry: `bytes` 0, `tiers` `{}`). A cell with a file too large to publish (over 20 MiB of
     gzip or 64 MiB of JSON) is split into its four 0.125° quarters, at

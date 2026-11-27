@@ -7,7 +7,7 @@ Each layer is one file per cell:
   t1-4   tiers 1-4                              (zoomed out; the same for either tier 0)
 
 A class is named by its lower slope bound in degrees; its upper bound is the next class's lower bound
-in the same tier, or none. So tier 0's "35" is 35-45 and "50" is 50-60 (cliffs are "60"), and tier 2's
+in the same tier, or none. So tier 0's "35" is 35-45 and "50" is 50+ (cliffs "60" lie over it), and tier 2's
 "45" is 45+.
 
 Sieve and minimum area are in pixels and square metres; simplify tolerance in metres. Changing any

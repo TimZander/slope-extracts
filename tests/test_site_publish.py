@@ -262,12 +262,16 @@ def test_a_kept_recipe1_cell_is_read_back_and_kept(live, tmp_path):
     root = artifact(tmp_path, 0, [DILLON])
     for layer in ('t0-3m', 't0-2m'):
         rewrite_layer(root, DILLON, layer, _tier0_doc(DILLON, layer, ['30', '35', '40', '45', '55']))
+    e = json.loads((root / DILLON / 'entry.json').read_text())
+    e['recipe'] = 1
+    (root / DILLON / 'entry.json').write_text(json.dumps(e))
     _c, out = run(tmp_path, live)
     live.publish(out, hashes=False)  # no hashes.json: the next deploy reads every kept file back
     artifact(tmp_path, 0, [OTHER])
     _c, out2 = run(tmp_path, live, 'site2')
-    assert f'cells/{DILLON}/t0-3m.json.gz' in live.requests
-    assert (out2 / f'cells/{DILLON}/t0-3m.json.gz').read_bytes() == (out / f'cells/{DILLON}/t0-3m.json.gz').read_bytes()
+    for layer in ('t0-3m', 't0-2m'):
+        assert f'cells/{DILLON}/{layer}.json.gz' in live.requests
+        assert (out2 / f'cells/{DILLON}/{layer}.json.gz').read_bytes() == (out / f'cells/{DILLON}/{layer}.json.gz').read_bytes()
 
 
 def test_rejects_a_date_with_a_trailing_newline(tmp_path):
