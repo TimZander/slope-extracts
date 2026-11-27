@@ -23,6 +23,22 @@ with plains cells adding little. The largest file seen is 12.5 MB (158_-426 at 2
 Tiers 1–4 of 158_-425: 5,293 / 1,340 / 1,314 / 109 polygons (the spike's v10 map: 5,246 / 1,332 /
 1,277 / 114, without a buffer).
 
+## Recipe 2 (seven tier-0 bands), cell 158_-425, 2026-11-26
+
+Built locally as the pilot cells were (same machine, real 3DEP lidar over HTTP), before merge, against
+the live recipe-1 entry of the same cell:
+
+| Layer | Recipe 1 polygons / MB | Recipe 2 polygons / MB | Change |
+|---|---|---|---|
+| t0-3m | 157,625 / 5.03 | 241,612 / 6.97 | +53 % polygons, +38 % bytes |
+| t0-2m | 318,444 / 9.81 | 516,097 / 14.24 | +62 % polygons, +45 % bytes |
+| t1-4 | 8,056 / 0.43 | 8,056 / 0.43 | unchanged, byte for byte |
+
+502 s wall-clock, 6.7 GB peak memory. Tier-0 polygons per class, t0-3m: `27` 68,178, `30` 49,794, `32`
+48,582, `35` 25,553, `45` 21,560, `50` 9,699, cliffs `60` 18,246 (t0-2m: 148,709 / 117,058 / 108,847 /
+56,400 / 47,254 / 19,583 / 18,246). Most of the growth is the new 27–30 band, ground recipe 1 didn't
+shade: without it, t0-3m would be 173,434 polygons, +10 %.
+
 ## Compiling a cell (garmin-map's side)
 
 `tools/cell_to_mp.py` → Polish + v10 TYP → mkgmap r4923, cell 158_-425 with tiers 1–4:

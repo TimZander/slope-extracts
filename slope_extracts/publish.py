@@ -197,7 +197,9 @@ def _regular(path):
     return stat.S_ISREG(os.lstat(path).st_mode)
 
 
-TIER_CLASSES = {'0': {'30', '35', '40', '45', '55'}, '1': {'35', '40', '45', '55'}, '2': {'35', '40', '45'},
+# Tier 0 accepts recipe 2's classes and recipe 1's ('40', '55'), so a kept cell not yet rebuilt still deploys
+# ("Tier 0's earlier classes still pass the deploy job's checks").
+TIER_CLASSES = {'0': {'27', '30', '32', '35', '45', '50', '60'} | {'40', '55'}, '1': {'35', '40', '45', '55'}, '2': {'35', '40', '45'},
                 '3': {'35', '40', '45'}, '4': {'30'}}
 MAX_JOBS_TXT = 4096
 MAX_CELL_JSON = 64 * 1024 * 1024

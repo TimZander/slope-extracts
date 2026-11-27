@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from rasterio.transform import from_origin
 
-from slope_extracts import build_cell, cellfile, classes, dem, grid, sources
+from slope_extracts import build_cell, cellfile, classes, dem, grid, recipe, sources
 
 
 def test_cell_bounds_dillon():
@@ -44,12 +44,24 @@ def test_decode_ring_rejects_short():
         cellfile.decode_ring([1, 2, 3, 4])
 
 
+# Requirement: Slope classes are named by their lower bound ("A plane at 41 degrees")
 def test_classify_plane_of_known_slope():
     res, deg = 2.0, 41.0
     x = np.arange(200) * res
     z = np.tile(x * np.tan(np.radians(deg)), (150, 1)).astype('float32')
-    cls = classes.classify(z, res, [30, 35, 40, 45], sieve=1)
-    assert (cls[5:-5, 5:-5] == 3).all()  # 40-45
+    edges = recipe.TIER0_BANDS_3M['edges']
+    cls = classes.classify(z, res, edges, sieve=1)
+    assert (cls[5:-5, 5:-5] == edges.index(35) + 1).all()  # 35-45
+
+
+# Requirement: Tier 0 holds every band and the cliffs ("A plane at 62 degrees")
+def test_classify_plane_steeper_than_cliffs_is_in_the_top_band_and_the_cliffs():
+    res, deg = 2.0, 62.0
+    x = np.arange(200) * res
+    z = np.tile(x * np.tan(np.radians(deg)), (150, 1)).astype('float32')
+    bands, cliffs = recipe.TIER0_BANDS_2M['edges'], recipe.TIER0_CLIFFS['edges']
+    assert (classes.classify(z, res, bands, sieve=1)[5:-5, 5:-5] == bands.index(50) + 1).all()
+    assert (classes.classify(z, res, cliffs, sieve=1)[5:-5, 5:-5] == cliffs.index(60) + 1).all()
 
 
 def test_classify_flat_and_nan_are_class_zero():
@@ -88,10 +100,12 @@ def test_build_cell_end_to_end(mini_cell, cone_dem, tmp_path):
     t03 = cellfile.loads((cdir / 't0-3m.json.gz').read_bytes())
     t02 = cellfile.loads((cdir / 't0-2m.json.gz').read_bytes())
     low = cellfile.loads((cdir / 't1-4.json.gz').read_bytes())
-    # every ring of the cone shows at the closest zoom, cliffs included
-    assert set(t03['tiers']['0']) == {'30', '35', '40', '45', '55'}
-    assert all(t03['tiers']['0'][c] for c in ('30', '35', '40', '45', '55'))
-    assert all(t02['tiers']['0'][c] for c in ('30', '35', '40', '45', '55'))
+    # Requirement: Tier 0 holds every band and the cliffs ("A cone of known slopes"): every class of
+    # tier 0 shows at the closest zoom, cliffs included
+    tier0 = ('27', '30', '32', '35', '45', '50', '60')
+    assert set(t03['tiers']['0']) == set(tier0) and set(t02['tiers']['0']) == set(tier0)
+    assert all(t03['tiers']['0'][c] for c in tier0)
+    assert all(t02['tiers']['0'][c] for c in tier0)
     # zoomed out, whole bands drop: no 30-35 at tier 1, no cliffs from tier 2, one 30+ class at tier 4
     assert set(low['tiers']['1']) == {'35', '40', '45', '55'}
     assert set(low['tiers']['2']) == {'35', '40', '45'}
@@ -107,7 +121,7 @@ def test_build_cell_end_to_end(mini_cell, cone_dem, tmp_path):
                         assert all(grid.to_units(s) - 1 <= y <= grid.to_units(n) + 1 and
                                    grid.to_units(w) - 1 <= x <= grid.to_units(e) + 1 for y, x in pts)
     assert entry['layers']['t0-3m']['tiers']['0']['polygons'] > 0
-    assert json.loads((cdir / 'entry.json').read_text())['recipe'] == 1
+    assert json.loads((cdir / 'entry.json').read_text())['recipe'] == 2
 
 
 def test_build_cell_main_names_a_failed_cell(tmp_path, capsys):

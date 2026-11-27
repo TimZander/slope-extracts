@@ -235,6 +235,45 @@ def test_rejects_a_class_a_tier_lacks(tmp_path):
         prep(tmp_path)
 
 
+def _tier0_doc(cell, layer, names):
+    s, w, _n, _e = grid.cell_bounds(cell)
+    y, x = grid.to_units(s) + 100, grid.to_units(w) + 100
+    return cellfile.build(cell, layer, {0: {int(c): [[[(y, x), (y + 10, x), (y + 10, x + 10)]]] for c in names}})
+
+
+# Requirement: Tier 0's earlier classes still pass the deploy job's checks ("A tier-0 class of neither recipe")
+def test_rejects_a_tier0_class_of_neither_recipe(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    rewrite_layer(root, DILLON, 't0-3m', _tier0_doc(DILLON, 't0-3m', ['33']))
+    with pytest.raises(RuntimeError, match='has class'):
+        prep(tmp_path)
+
+
+# Requirement: Tier 0 holds every band and the cliffs (the deploy job accepts every class of tier 0)
+def test_accepts_every_tier0_class(tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    rewrite_layer(root, DILLON, 't0-3m', _tier0_doc(DILLON, 't0-3m', ['27', '30', '32', '35', '45', '50', '60']))
+    _c, out = prep(tmp_path)
+    assert (out / f'cells/{DILLON}/t0-3m.json.gz').exists()
+
+
+# Requirement: Tier 0's earlier classes still pass the deploy job's checks ("A kept recipe-1 cell")
+def test_a_kept_recipe1_cell_is_read_back_and_kept(live, tmp_path):
+    root = artifact(tmp_path, 0, [DILLON])
+    for layer in ('t0-3m', 't0-2m'):
+        rewrite_layer(root, DILLON, layer, _tier0_doc(DILLON, layer, ['30', '35', '40', '45', '55']))
+    e = json.loads((root / DILLON / 'entry.json').read_text())
+    e['recipe'] = 1
+    (root / DILLON / 'entry.json').write_text(json.dumps(e))
+    _c, out = run(tmp_path, live)
+    live.publish(out, hashes=False)  # no hashes.json: the next deploy reads every kept file back
+    artifact(tmp_path, 0, [OTHER])
+    _c, out2 = run(tmp_path, live, 'site2')
+    for layer in ('t0-3m', 't0-2m'):
+        assert f'cells/{DILLON}/{layer}.json.gz' in live.requests
+        assert (out2 / f'cells/{DILLON}/{layer}.json.gz').read_bytes() == (out / f'cells/{DILLON}/{layer}.json.gz').read_bytes()
+
+
 def test_rejects_a_date_with_a_trailing_newline(tmp_path):
     root = artifact(tmp_path, 0, [DILLON])
     e = json.loads((root / DILLON / 'entry.json').read_text())
