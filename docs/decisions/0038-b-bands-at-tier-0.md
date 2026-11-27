@@ -46,6 +46,12 @@ pixel above 60° is in `50`, as one above 55° was in `45`.
   leave out `t0-2m`. Measured after the rebuild in `docs/measurements.md`.
 - Neutral: the deploy check is wider than any one cell needs until a later change narrows it.
 
+### Confirmation
+
+Measured before merge on cell 158_-425 (`docs/measurements.md`): tier 0 +53 % polygons and +38 % bytes
+at 3 m, +62 % / +45 % at 2 m, mostly the new 27–30 band. The owner accepted that cost with all seven
+bands (2026-11-26), noting that the reader's on-phone map build then needs more speed work.
+
 ## More Information
 
 Change `b-bands-tier-0`. Recipe 1 had no ADR of its own (the v10 watch-tested design).
