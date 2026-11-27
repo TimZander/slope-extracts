@@ -7,19 +7,22 @@ Each layer is one file per cell:
   t1-4   tiers 1-4                              (zoomed out; the same for either tier 0)
 
 A class is named by its lower slope bound in degrees; its upper bound is the next class's lower bound
-in the same tier, or none. So tier 0's "45" is 45-55 (cliffs are "55"), and tier 2's "45" is 45+.
+in the same tier, or none. So tier 0's "35" is 35-45 and "50" is 50-60 (cliffs are "60"), and tier 2's
+"45" is 45+.
 
 Sieve and minimum area are in pixels and square metres; simplify tolerance in metres. Changing any
 number here changes the cells: bump RECIPE so the next run rebuilds every cell.
 """
 
-RECIPE = 1
+RECIPE = 2
 
 # Bands from DEM pixels of `res` metres. Tier 0 values scale with the pixel (sieve 10 px, simplify
-# 0.9 px, minimum area 2 px^2), as in the 1/2/3 m Buffalo comparison.
-TIER0_BANDS_3M = dict(res=3.0, edges=[30, 35, 40, 45], keep=[30, 35, 40, 45], sieve=10, simplify=2.7, min_area=18.0)
-TIER0_BANDS_2M = dict(res=2.0, edges=[30, 35, 40, 45], keep=[30, 35, 40, 45], sieve=10, simplify=1.8, min_area=8.0)
-TIER0_CLIFFS = dict(res=2.0, edges=[55], keep=[55], sieve=6, simplify=1.8, min_area=8.0)
+# 0.9 px, minimum area 2 px^2), as in the 1/2/3 m Buffalo comparison. Tier 0's seven classes are the
+# reader's "B" bands (recipe 2): finer steps from 27 to 35, one 35-45 band, then 45-50, 50-60 and cliffs.
+TIER0_EDGES = [27, 30, 32, 35, 45, 50]
+TIER0_BANDS_3M = dict(res=3.0, edges=TIER0_EDGES, keep=TIER0_EDGES, sieve=10, simplify=2.7, min_area=18.0)
+TIER0_BANDS_2M = dict(res=2.0, edges=TIER0_EDGES, keep=TIER0_EDGES, sieve=10, simplify=1.8, min_area=8.0)
+TIER0_CLIFFS = dict(res=2.0, edges=[60], keep=[60], sieve=6, simplify=1.8, min_area=8.0)
 
 # Tiers 1-4 come from the 3 m DEM, block-averaged by `factor`. Zoomed out, whole bands drop out,
 # never small areas (owner): 30-35 is gone from tier 1, cliffs fold into 45+ from tier 2, and tier 4
