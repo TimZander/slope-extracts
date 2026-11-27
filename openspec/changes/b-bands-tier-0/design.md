@@ -34,7 +34,9 @@ faster rebuilding; the build workflow file.
    need the entry beside every file, for a window of a day or so); accepting only the new classes
    (a kept recipe-1 file read back would fail every deploy until it is rebuilt). Narrowing it again
    after the rebuild is a later change.
-5. **The test cone gets eight rings** (62, 53, 47, 42, 37, 33, 31, 28°) so tier 0 shows all seven
+5. **Spec review round 1** (no blocker, so no second round): the top band reads `50` (50°+) in the
+   requirement, with a 62° plane scenario; the kept-cell scenario names both tier-0 layers.
+6. **The test cone gets eight rings** (62, 53, 47, 42, 37, 33, 31, 28°) so tier 0 shows all seven
    classes and tier 1 still shows all four of its own.
 
 ## Risks

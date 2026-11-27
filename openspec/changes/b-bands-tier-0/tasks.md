@@ -2,11 +2,11 @@
 
 ## 1. Tests first
 
-- [ ] 1.1 Tests for the changed scenarios, seen to fail: the plane at 41° in class `35`, the cone's seven tier-0 classes in both layers, the recipe 2 in the entry, a kept recipe-1 tier-0 file accepted, an unknown tier-0 class refused
+- [ ] 1.1 Tests for the changed scenarios, seen to fail: the plane at 41° in class `35`, the plane at 62° in `50` and `60`, the cone's seven tier-0 classes in both layers, the recipe 2 in the entry, a kept recipe-1 tier-0 file accepted, an unknown tier-0 class refused
 
 ## 2. Code
 
-- [ ] 2.1 `recipe.py`: tier-0 edges and cliffs, `RECIPE` 2
+- [ ] 2.1 `recipe.py`: tier-0 edges and cliffs, `RECIPE` 2, its docstring's class example
 - [ ] 2.2 `publish.py`: tier 0 accepts both recipes' classes
 
 ## 3. Records
