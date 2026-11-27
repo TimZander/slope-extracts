@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "Tier 0's earlier classes still pass the deploy job's checks": null,
+      "Slope classes are named by their lower bound": "f9920639cdf1dde3abb22f7b05d30f3979a25b6515d72cc0ad16d8e494f01250",
+      "Tier 0 holds every band and the cliffs": "5486c8f07180fea6b14c6ec79b8f7f270a93522e7379b280ab51775d7fe78dc0"
+    }
+  }
+}
