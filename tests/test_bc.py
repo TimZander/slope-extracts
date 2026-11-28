@@ -340,3 +340,98 @@ def test_a_cell_no_area_covers_fails_its_build(tmp_path, monkeypatch):
     assert build_cell.main(['0_0', DILLON, '--out', str(tmp_path / 'o'), '--areas', str(areas)]) == 1
     assert built == [DILLON]
     assert json.loads((tmp_path / 'o' / 'failed.json').read_text()) == ['0_0']
+
+
+# --- catalogue-fail-fast ---------------------------------------------------------------------------
+# Requirement: A build job stops asking a catalogue that failed it
+
+@pytest.fixture
+def fresh_catalogue(monkeypatch):
+    monkeypatch.setattr(sources, '_CATALOGUE_DOWN', None, raising=False)
+    monkeypatch.setattr(sources, '_PROBED', False)
+    monkeypatch.setattr(sources.time, 'sleep', lambda s: None)
+    import socket
+
+    def no_network(*a, **k):
+        raise AssertionError('a test reached the network')
+    monkeypatch.setattr(socket.socket, 'connect', no_network)
+
+
+class Opener:
+    """urllib.request.urlopen stand-in: raises `error` on every call, or answers `body`; counts calls."""
+    def __init__(self, error=None, body=b'{"type": "FeatureCollection", "features": [], "links": []}'):
+        self.error, self.body, self.calls = error, body, 0
+
+    def __call__(self, req, timeout=None):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        body = self.body
+
+        class R:
+            def __enter__(s):
+                return s
+
+            def __exit__(s, *a):
+                return False
+
+            def read(s, n):
+                return body[:n]
+        return R()
+
+
+# ("A job that can't reach the catalogue")
+def test_a_job_that_cant_reach_the_catalogue_fails_its_hrdem_cells_fast(tmp_path, monkeypatch, fresh_catalogue, capsys):
+    import socket
+    hrdem3 = dict(BC, boxes=[{'south': 49.01, 'west': -117.49, 'north': 49.24, 'east': -116.76}])  # 196_-470..-468
+    areas = tmp_path / 'areas.json'
+    areas.write_text(json.dumps([CO, hrdem3]))
+    opener = Opener(error=socket.timeout('timed out'))
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', opener)
+    real_build = build_cell.build
+    built = []
+
+    def build(c, out, dem_paths=None, source='3dep', **k):
+        if source == '3dep':
+            built.append(c)
+            return {}
+        return real_build(c, out, dem_paths, source=source, log=lambda *_: None)
+    monkeypatch.setattr(build_cell, 'build', build)
+    cells = ['196_-470', '196_-469', '196_-468', DILLON]
+    assert build_cell.main(cells + ['--out', str(tmp_path / 'o'), '--areas', str(areas)]) == 1
+    assert opener.calls == 4  # the first cell's one request, four tries; nothing sent after
+    assert built == [DILLON]
+    assert json.loads((tmp_path / 'o' / 'failed.json').read_text()) == cells[:3]
+    err = capsys.readouterr().err
+    assert err.count("didn't answer earlier in this job") == 2
+
+
+@pytest.mark.parametrize('error', ['refused', 'reset'])
+def test_connection_errors_trip_it_too(fresh_catalogue, monkeypatch, error):
+    import urllib.error
+    e = urllib.error.URLError(ConnectionRefusedError()) if error == 'refused' else ConnectionResetError()
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', Opener(error=e))
+    with pytest.raises(RuntimeError):
+        sources.hrdem_projects(*BOX)
+    later = Opener()
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', later)
+    with pytest.raises(RuntimeError, match="didn't answer earlier in this job"):
+        sources.hrdem_projects(*BOX)
+    assert later.calls == 0
+
+
+# ("An answer the job can't use")
+@pytest.mark.parametrize('bad', ['oversized', 'off host'])
+def test_an_answer_the_job_cant_use_doesnt_trip_it(fresh_catalogue, monkeypatch, bad):
+    if bad == 'oversized':
+        monkeypatch.setattr(sources.urllib.request, 'urlopen', Opener(body=b'{"features": [' + b' ' * (9 * 1024 * 1024)))
+        with pytest.raises(RuntimeError):
+            sources.hrdem_projects(*BOX)
+    else:
+        with pytest.raises(RuntimeError, match='next page'):
+            sources.hrdem_projects(*BOX, post=Catalogue(projects=[[feature('BC-A_2015-1m')], [feature('BC-B_2017-1m')]],
+                                                        next_host='https://evil.example/search').post)
+    later = Opener()
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', later)
+    assert sources.hrdem_projects(*BOX) == []
+    assert later.calls == 1
