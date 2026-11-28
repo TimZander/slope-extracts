@@ -6,4 +6,4 @@
 ## 2. Records
 
 - [x] 2.1 ADR 0039 (a build job stops asking a catalogue that failed it)
-- [ ] 2.2 Conformance review recorded
+- [x] 2.2 Conformance review recorded

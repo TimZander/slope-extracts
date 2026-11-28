@@ -33,3 +33,8 @@ None.
   answers trips the latch, not an answer that can't be used; an ADR task), consider items taken (the 4
   tries in the rule, a scenario for an unusable answer, the skipped cells' message and `failed.json`,
   tests reset the latch).
+- Conformance review, round 1 (2026-11-28): no hard fail. 3 soft fails, taken: the rule names name and
+  TLS errors (they count) and HTTP errors (an answer, they don't); tests for an HTTP 503 and for a
+  request with one unreadable answer among its timeouts (neither trips it); the off-host case now goes
+  through the real request path. Mutations seen caught: the latch never checked or set, any failure
+  tripping it, HTTP errors counted, only the last try judged.

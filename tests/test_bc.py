@@ -428,10 +428,36 @@ def test_an_answer_the_job_cant_use_doesnt_trip_it(fresh_catalogue, monkeypatch,
         with pytest.raises(RuntimeError):
             sources.hrdem_projects(*BOX)
     else:
+        page = {'type': 'FeatureCollection', 'features': [feature('BC-A_2015-1m')],
+                'links': [{'rel': 'next', 'href': 'https://evil.example/search', 'method': 'POST', 'body': {}}]}
+        monkeypatch.setattr(sources.urllib.request, 'urlopen', Opener(body=json.dumps(page).encode()))
         with pytest.raises(RuntimeError, match='next page'):
-            sources.hrdem_projects(*BOX, post=Catalogue(projects=[[feature('BC-A_2015-1m')], [feature('BC-B_2017-1m')]],
-                                                        next_host='https://evil.example/search').post)
+            sources.hrdem_projects(*BOX)
     later = Opener()
     monkeypatch.setattr(sources.urllib.request, 'urlopen', later)
     assert sources.hrdem_projects(*BOX) == []
     assert later.calls == 1
+
+
+@pytest.mark.parametrize('case', ['http 503', 'unreadable then timeouts'])
+def test_an_answer_among_the_tries_doesnt_trip_it(fresh_catalogue, monkeypatch, case):
+    """An HTTP error is an answer; and only a request whose every try went unanswered trips it."""
+    import socket
+    import urllib.error
+    if case == 'http 503':
+        opener = Opener(error=urllib.error.HTTPError(sources.STAC_SEARCH, 503, 'busy', {}, None))
+    else:
+        tries = iter([None, socket.timeout('t'), socket.timeout('t'), socket.timeout('t')])
+        bad = Opener(body=b'not json')
+
+        def opener(req, timeout=None):
+            e = next(tries)
+            if e:
+                raise e
+            return bad(req, timeout)
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', opener)
+    with pytest.raises(RuntimeError, match='did not answer after 4 tries'):
+        sources.hrdem_projects(*BOX)
+    later = Opener()
+    monkeypatch.setattr(sources.urllib.request, 'urlopen', later)
+    assert sources.hrdem_projects(*BOX) == [] and later.calls == 1
