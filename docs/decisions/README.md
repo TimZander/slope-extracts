@@ -45,3 +45,4 @@ one. A superseded record stays, with its status set to `superseded by NNNN`.
 | [0037](0037-an-area-names-its-elevation-source.md) | An area names its elevation source; hrdem cells read NRCan's 1 m mosaic, gated by its catalogue | accepted |
 | [0038](0038-b-bands-at-tier-0.md) | Tier 0 in seven "B" bands (27 to cliffs 60), recipe 2; the deploy check accepts both recipes during the rebuild | accepted |
 | [0039](0039-a-build-job-stops-asking-a-catalogue-that-failed-it.md) | A build job stops asking NRCan's catalogue once it has failed to answer | accepted |
+| [0040](0040-wyoming-utah-and-idaho-as-areas.md) | Wyoming, Utah and Idaho are areas after British Columbia; Idaho is its whole box, Utah reaches 42° N | accepted |
