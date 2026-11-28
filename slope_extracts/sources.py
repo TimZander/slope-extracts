@@ -16,6 +16,7 @@ import json
 import math
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -86,9 +87,25 @@ PROJECT_ID = re.compile(r'[A-Za-z0-9_-]{1,100}')
 MAX_PAGES = 20
 
 
-def _post_json(url, body, attempts=4, delay=5.0, opener=urllib.request.urlopen):
-    """POST `body` as JSON (GET when None) to the catalogue; retried, then named."""
-    last = None
+# Set once a catalogue request in this process (a build job) failed every try without an answer: later
+# requests fail at once ("A build job stops asking a catalogue that failed it").
+_CATALOGUE_DOWN = None
+
+
+def _unanswered(e):
+    """A failure with no answer: a timeout or a connection error (not an answer that can't be used)."""
+    # timeouts, refused or reset connections and URLError are all OSError; an HTTP error is an answer
+    return isinstance(e, OSError) and not isinstance(e, urllib.error.HTTPError)
+
+
+def _post_json(url, body, attempts=4, delay=5.0, opener=None):
+    """POST `body` as JSON (GET when None) to the catalogue; retried, then named. After a request whose
+    every try went unanswered, later ones in the process fail at once without being sent."""
+    global _CATALOGUE_DOWN
+    if _CATALOGUE_DOWN is not None:
+        raise RuntimeError(f"the NRCan catalogue didn't answer earlier in this job ({_CATALOGUE_DOWN}); not asked again")
+    opener = opener or urllib.request.urlopen
+    last, unanswered = None, True
     for i in range(attempts):
         try:
             data = None if body is None else json.dumps(body).encode()
@@ -98,7 +115,10 @@ def _post_json(url, body, attempts=4, delay=5.0, opener=urllib.request.urlopen):
                 return json.loads(resp.read(8 * 1024 * 1024))
         except Exception as e:  # network or parse failure: retried, then named
             last = e
+            unanswered = unanswered and _unanswered(e)
             time.sleep(delay * (i + 1))
+    if unanswered:
+        _CATALOGUE_DOWN = f'{attempts} tries: {last}'
     raise RuntimeError(f'the NRCan catalogue did not answer after {attempts} tries: {last}')
 
 
