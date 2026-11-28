@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "pins": {
+    "slope-extract": {
+      "A build job stops asking a catalogue that failed it": null
+    }
+  }
+}
