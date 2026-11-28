@@ -61,5 +61,29 @@
       { "south": 59.51, "west": -135.24, "north": 59.74, "east": -120.01 },
       { "south": 59.76, "west": -138.74, "north": 59.99, "east": -120.01 }
     ]
+  },
+  {
+    "id": "wyoming",
+    "name": "Wyoming",
+    "source": "3dep",
+    "boxes": [
+      { "south": 41.01, "west": -111.04, "north": 44.99, "east": -104.06 }
+    ]
+  },
+  {
+    "id": "utah",
+    "name": "Utah",
+    "source": "3dep",
+    "boxes": [
+      { "south": 37.01, "west": -114.04, "north": 41.99, "east": -109.06 }
+    ]
+  },
+  {
+    "id": "idaho",
+    "name": "Idaho",
+    "source": "3dep",
+    "boxes": [
+      { "south": 42.01, "west": -117.23, "north": 48.99, "east": -111.05 }
+    ]
   }
 ]

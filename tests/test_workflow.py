@@ -285,3 +285,15 @@ def test_the_live_site_is_checked_after_the_deployment_without_a_secret():
     assert "if: steps.site.outputs.changed == 'true'" in st
     assert 'run: python3 -m slope_extracts.publish verify --site _site\n' in st + '\n'
     assert names.index('Create the deployment') < names.index('Check the live site')
+
+
+# ADR 0040: the owner's areas, in the owner's order
+def test_the_repositorys_areas_are_the_owners():
+    areas = site.load_areas(str(ROOT / 'areas.json'))
+    assert [a['id'] for a in areas] == ['colorado', 'british-columbia', 'wyoming', 'utah', 'idaho']
+    boxes = {a['id']: a['boxes'] for a in areas}
+    assert boxes['idaho'] == [{'south': 42.01, 'west': -117.23, 'north': 48.99, 'east': -111.05}]
+    assert boxes['utah'] == [{'south': 37.01, 'west': -114.04, 'north': 41.99, 'east': -109.06}]
+    assert boxes['wyoming'] == [{'south': 41.01, 'west': -111.04, 'north': 44.99, 'east': -104.06}]
+    assert {a['id']: a['source'] for a in areas}['idaho'] == '3dep'
+    assert len(site.site_coverage(areas)) == 4322

@@ -8,7 +8,7 @@ Canada, and published as a static site at <https://slope.timzander.com>.
 - **How:** `.github/workflows/build.yml` runs every 15 minutes, one run at a time, so runs follow one
   another (and by hand). It reads the live site past its CDN cache, and builds the covered cells
   the site lacks or built with an older recipe, at most 48 per run, three per job:
-  - `areas.json` lists named areas (Colorado, British Columbia), each with its elevation `source`
+  - `areas.json` lists named areas (Colorado, British Columbia, Wyoming, Utah, Idaho), each with its elevation `source`
     (`3dep` or `hrdem`) and one or more boxes; the coverage is every 0.25° cell a box
     overlaps, each cell built and stored once however many areas cover it.
   - Each build job reads 3DEP 1 m lidar (the ~10 m DEM where lidar has a gap) as a 2 m mosaic, or, in
